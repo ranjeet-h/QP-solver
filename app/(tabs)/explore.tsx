@@ -1,4 +1,4 @@
-import { StyleSheet, Image, Platform } from 'react-native';
+import { StyleSheet, Image, Platform, View, Text } from 'react-native';
 
 import { Collapsible } from '@/components/Collapsible';
 import { ExternalLink } from '@/components/ExternalLink';
@@ -23,6 +23,46 @@ export default function TabTwoScreen() {
         <ThemedText type="title">Explore</ThemedText>
       </ThemedView>
       <ThemedText>This app includes example code to help you get started.</ThemedText>
+      
+      {/* Simple test with strong colors */}
+      <View style={{ marginVertical: 10 }}>
+        <Text>Testing without className:</Text>
+        <View style={{ backgroundColor: 'red', padding: 10, borderRadius: 5, marginTop: 5 }}>
+          <Text style={{ color: 'white' }}>Red background with white text (regular styles)</Text>
+        </View>
+      </View>
+
+      {/* Direct NativeWind test */}
+      <View style={{ marginVertical: 10 }}>
+        <Text>Testing with className:</Text>
+        <View className="bg-red-500 p-4 rounded mt-2">
+          <Text className="text-white font-bold">Red background with white text (Tailwind)</Text>
+        </View>
+      </View>
+
+      {/* NativeWind Example */}
+      <Collapsible title="NativeWind Example">
+        <ThemedText>
+          NativeWind is now working! Here's an example of using Tailwind classes in React Native:
+        </ThemedText>
+        <View className="mt-4 p-4 bg-blue-100 dark:bg-blue-900 rounded-lg">
+          <Text className="text-lg font-bold text-blue-800 dark:text-blue-200">
+            Hello from NativeWind!
+          </Text>
+          <Text className="mt-2 text-blue-700 dark:text-blue-300">
+            This view is styled entirely with Tailwind classes.
+          </Text>
+          <View className="flex-row mt-3 space-x-2">
+            <View className="px-3 py-1 bg-green-500 rounded-full">
+              <Text className="text-white font-semibold">Tag 1</Text>
+            </View>
+            <View className="px-3 py-1 bg-purple-500 rounded-full">
+              <Text className="text-white font-semibold">Tag 2</Text>
+            </View>
+          </View>
+        </View>
+      </Collapsible>
+      
       <Collapsible title="File-based routing">
         <ThemedText>
           This app has two screens:{' '}
