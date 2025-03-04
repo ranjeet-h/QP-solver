@@ -1,149 +1,178 @@
-import { StyleSheet, Image, Platform, View, Text } from 'react-native';
+import React from 'react';
+import { StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { 
+  Box, 
+  Heading, 
+  Text, 
+  VStack,
+  HStack,
+  Divider,
+  Icon
+} from '@/components/ui';
 
-import { Collapsible } from '@/components/Collapsible';
-import { ExternalLink } from '@/components/ExternalLink';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-import { IconSymbol } from '@/components/ui/IconSymbol';
+// Mock history data
+const historyItems = [
+  {
+    id: '1',
+    question: 'What is the difference between mitosis and meiosis?',
+    date: '2023-05-15T14:30:00',
+    creditsUsed: 5,
+  },
+  {
+    id: '2',
+    question: 'Solve the quadratic equation: 3x² + 8x - 16 = 0',
+    date: '2023-05-14T09:45:00',
+    creditsUsed: 5,
+  },
+  {
+    id: '3',
+    question: 'Explain the process of photosynthesis and its importance.',
+    date: '2023-05-10T16:20:00',
+    creditsUsed: 5,
+  },
+  {
+    id: '4',
+    question: 'What are the causes and effects of the Industrial Revolution?',
+    date: '2023-05-05T11:15:00',
+    creditsUsed: 5,
+  },
+];
 
-export default function TabTwoScreen() {
+export default function HistoryScreen() {
+  // Format the date string
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const handleHistoryItemPress = (id: string) => {
+    // In a real app, this would navigate to the detailed answer
+    console.log(`Viewing history item ${id}`);
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Explore</ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
+    <Box style={styles.container}>
+      <Box style={styles.header}>
+        <Heading style={styles.title} className='text-2xl font-bold mt-10'>History</Heading>
+        <Text style={styles.subtitle}>Your previously solved questions</Text>
+      </Box>
       
-      {/* Simple test with strong colors */}
-      <View style={{ marginVertical: 10 }}>
-        <Text>Testing without className:</Text>
-        <View style={{ backgroundColor: 'red', padding: 10, borderRadius: 5, marginTop: 5 }}>
-          <Text style={{ color: 'white' }}>Red background with white text (regular styles)</Text>
-        </View>
-      </View>
-
-      {/* Direct NativeWind test */}
-      <View style={{ marginVertical: 10 }}>
-        <Text>Testing with className:</Text>
-        <View className="bg-red-500 p-4 rounded mt-2">
-          <Text className="text-white font-bold">Red background with white text (Tailwind)</Text>
-        </View>
-      </View>
-
-      {/* NativeWind Example */}
-      <Collapsible title="NativeWind Example">
-        <ThemedText>
-          NativeWind is now working! Here's an example of using Tailwind classes in React Native:
-        </ThemedText>
-        <View className="mt-4 p-4 bg-blue-100 dark:bg-blue-900 rounded-lg">
-          <Text className="text-lg font-bold text-blue-800 dark:text-blue-200">
-            Hello from NativeWind!
-          </Text>
-          <Text className="mt-2 text-blue-700 dark:text-blue-300">
-            This view is styled entirely with Tailwind classes.
-          </Text>
-          <View className="flex-row mt-3 space-x-2">
-            <View className="px-3 py-1 bg-green-500 rounded-full">
-              <Text className="text-white font-semibold">Tag 1</Text>
-            </View>
-            <View className="px-3 py-1 bg-purple-500 rounded-full">
-              <Text className="text-white font-semibold">Tag 2</Text>
-            </View>
-          </View>
-        </View>
-      </Collapsible>
-      
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image source={require('@/assets/images/react-logo.png')} style={{ alignSelf: 'center' }} />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Custom fonts">
-        <ThemedText>
-          Open <ThemedText type="defaultSemiBold">app/_layout.tsx</ThemedText> to see how to load{' '}
-          <ThemedText style={{ fontFamily: 'SpaceMono' }}>
-            custom fonts such as this one.
-          </ThemedText>
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/versions/latest/sdk/font">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user's current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful <ThemedText type="defaultSemiBold">react-native-reanimated</ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        {historyItems.length > 0 ? (
+          <VStack style={styles.historyList}>
+            {historyItems.map((item, index) => (
+              <React.Fragment key={item.id}>
+                <TouchableOpacity 
+                  style={styles.historyItem}
+                  onPress={() => handleHistoryItemPress(item.id)}
+                >
+                  <VStack style={styles.historyContent}>
+                    <Text style={styles.question} numberOfLines={2}>
+                      {item.question}
+                    </Text>
+                    <HStack style={styles.historyMeta}>
+                      <Text style={styles.date}>{formatDate(item.date)}</Text>
+                      <Text style={styles.credits}>-{item.creditsUsed} credits</Text>
+                    </HStack>
+                  </VStack>
+                </TouchableOpacity>
+                {index < historyItems.length - 1 && <Divider style={styles.divider} />}
+              </React.Fragment>
+            ))}
+          </VStack>
+        ) : (
+          <Box style={styles.emptyState}>
+            <Text style={styles.emptyText}>You haven't solved any questions yet.</Text>
+          </Box>
+        )}
+      </ScrollView>
+    </Box>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
   },
-  titleContainer: {
-    flexDirection: 'row',
+  header: {
+    paddingTop: 80,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+  },
+  subtitle: {
+    opacity: 0.7,
+    marginTop: 4,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 16,
+  },
+  historyList: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  historyItem: {
+    paddingVertical: 12,
+  },
+  historyContent: {
     gap: 8,
   },
+  question: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  historyMeta: {
+    justifyContent: 'space-between',
+  },
+  date: {
+    fontSize: 12,
+    opacity: 0.6,
+  },
+  credits: {
+    fontSize: 12,
+    color: '#e53e3e',
+  },
+  divider: {
+    marginVertical: 4,
+  },
+  emptyState: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  emptyText: {
+    opacity: 0.7,
+    textAlign: 'center',
+  }
 });

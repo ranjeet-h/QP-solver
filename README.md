@@ -1,50 +1,118 @@
-# Welcome to your Expo app 👋
+# Question Paper Solver App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A React Native application built with Expo that helps solve question papers using provided reference books through LLM (Large Language Model) technology.
 
-## Get started
+## Project Overview
 
-1. Install dependencies
+This app allows users to upload question papers and get answers based on reference books using LLM technology. The app has a credit-based system where users get 100 free credits and can purchase additional credits (500 credits for ₹500).
 
+## Features
+
+- **Authentication**: Login and signup functionality
+- **Plans & Credits**: Free plan with 100 credits and premium plan with 500 credits for ₹500
+- **Home Page**: Main interface for uploading question papers and getting answers
+- **Settings**: User profile management and app settings
+- **Explore**: Discover more features and information
+- **Payment Integration**: Razorpay integration for purchasing credits (currently mocked)
+
+## Tech Stack
+
+- React Native with Expo
+- TypeScript
+- Tailwind CSS (via NativeWind)
+- Expo Router for navigation
+- Gluestack UI components
+- React Navigation
+
+## Project Structure
+
+```
+solver-test/
+├── app/                      # Main application code
+│   ├── (auth)/               # Authentication screens (login, signup)
+│   ├── (tabs)/               # Main app tabs (home, explore, settings)
+│   ├── _layout.tsx           # Root layout component
+│   ├── plans.tsx             # Subscription plans page
+├── assets/                   # Static assets like images
+├── components/               # Reusable UI components
+├── constants/                # App constants
+├── hooks/                    # Custom React hooks
+├── utils/                    # Utility functions
+```
+
+## Installation and Setup
+
+1. Clone the repository
+
+2. Install dependencies
    ```bash
    npm install
    ```
-
-2. Start the app
-
+   or
    ```bash
-    npx expo start
+   yarn install
    ```
 
-In the output, you'll find options to open the app in a
+3. Start the development server
+   ```bash
+   npx expo start
+   ```
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Available Commands
 
 ```bash
-npm run reset-project
+# Start the development server
+npx expo start
+
+# Start with specific platform
+npm run android
+npm run ios
+npm run web
+
+# Publish to Expo with specific channel
+expo publish --release-channel beta
+
+# Build for Android development
+eas build --platform android --profile development
+
+# Build locally
+eas build --local
+
+# Run linting
+npm run lint
+
+# Run tests
+npm run test
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Build Configuration
 
-## Learn more
+The project uses EAS (Expo Application Services) for building and deploying. The configuration is in the `eas.json` file with the following profiles:
 
-To learn more about developing your project with Expo, look at the following resources:
+- **development**: For development client builds
+- **preview**: For internal distribution
+- **production**: For production builds with auto-increment versioning
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## API Integration
 
-## Join the community
+Currently, the app uses mocked APIs for demonstration purposes. The actual backend integration will be implemented later.
 
-Join our community of developers creating universal apps.
+## Development Guidelines
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+1. Use TypeScript for type safety
+2. Follow the directory structure
+3. Utilize the Gluestack UI components for UI elements
+4. Use Expo Router for navigation
+5. Keep components reusable and modular
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is proprietary and confidential.

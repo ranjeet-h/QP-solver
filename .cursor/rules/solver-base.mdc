@@ -1,0 +1,11 @@
+---
+description: @package.json @ui we have react native project setup wit all the libraries needed we are going to build the app for question paper solver using the provided refrance book using llm. we will have login page, after that plans page and afte that home page. we can go to setting page and buy the credits. we have free plan with 100 credits and we have 500rs plan for 500 credits. we will use razer pay for paymen and also mock the apis we dont have be ready yet will just work on app and will mock the apis will intigrate them later 
+globs: 
+alwaysApply: false
+---
+
+# Your rule content
+
+- You can @ files here
+- You can use markdown but dont have to
+@package.json @ui we have react native project setup wit all the libraries needed we are going to build the app for question paper solver using the provided refrance book using llm. we will have login page, after that plans page and afte that home page. we can go to setting page and buy the credits. we have free plan with 100 credits and we have 500rs plan for 500 credits. we will use razer pay for paymen and also mock the apis we dont have be ready yet will just work on app and will mock the apis will intigrate them later 
