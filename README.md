@@ -116,3 +116,43 @@ Currently, the app uses mocked APIs for demonstration purposes. The actual backe
 ## License
 
 This project is proprietary and confidential.
+
+# Build APK
+
+<!-- Set the environment variables -->
+```bash
+export ANDROID_HOME="$HOME/Library/Android/sdk" && export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home && echo "Environment set: ANDROID_HOME=$ANDROID_HOME, JAVA_HOME=$JAVA_HOME"
+```
+
+# Run the app
+
+```bash
+npx expo run:android --device  
+```
+
+
+# Build APK Locally
+
+```bash
+eas build --platform android --local  
+```
+# Convert aab to apk
+## Install the build-tools and convert the aab to apk
+
+```bash
+java -jar bundletool-all-1.18.0.jar build-apks --bundle=build-1741189266818.aab --output=app.apks --mode=universal  
+```
+
+## Then unzip the app.apks and copy the apk to the android/app/src/main/assets/ directory
+
+```bash
+unzip app.apks -d apks            
+```
+
+
+
+
+
+
+
+
