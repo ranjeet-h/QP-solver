@@ -136,7 +136,7 @@ export default function HomeScreen() {
             
             <HStack style={styles.creditsContainer}>
               <Image 
-                source={require('../../assets/images/icon.png')}
+                source={require('../../assets/images/undraw_learning-sketchingsh.png')}
                 alt="Credits"
                 style={styles.creditIcon}
                 defaultSource={{ uri: 'https://via.placeholder.com/24' }}

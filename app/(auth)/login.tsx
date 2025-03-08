@@ -71,11 +71,11 @@ export default function LoginScreen() {
         <VStack space="lg" style={styles.form}>
           <Box style={styles.logoContainer}>
             <Image 
-              source={require('@/assets/images/icon.png')} 
+              source={require('@/assets/images/undraw_learning-sketchingsh.png')} 
               alt="App Logo"
               size="2xl"
               style={styles.logo}
-              defaultSource={require('@/assets/images/icon.png')}
+              defaultSource={require('@/assets/images/undraw_learning-sketchingsh.png')}
             />
             <Heading size="2xl" style={styles.title}>Solver</Heading>
             <Text size="sm" style={styles.subtitle}>Solve question papers with AI</Text>
