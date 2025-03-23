@@ -138,21 +138,6 @@ export default function SettingsScreen() {
             </Box>
           </Card>
           
-          <Card style={styles.settingsCard}>
-            <Box style={styles.cardHeader}>
-              <Heading size="sm">Preferences</Heading>
-            </Box>
-            <Box style={styles.cardContent}>
-              <HStack style={styles.settingRow}>
-                <Text>Enable Notifications</Text>
-                <Switch
-                  value={notificationsEnabled}
-                  onValueChange={setNotificationsEnabled}
-                />
-              </HStack>
-            </Box>
-          </Card>
-          
           <Card style={styles.creditsCard}>
             <Box style={styles.cardHeader}>
               <Heading size="sm">Buy Credits</Heading>
@@ -215,13 +200,10 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   profileCard: {
-    marginBottom: 16,
-  },
-  settingsCard: {
-    marginBottom: 16,
+    marginBottom: 0,
   },
   creditsCard: {
-    marginBottom: 24,
+    marginBottom: 14,
   },
   cardHeader: {
     padding: 16,

@@ -41,3 +41,7 @@ app-example
 /android
 *.apks
 /apks
+
+*venv
+
+*.env

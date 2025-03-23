@@ -58,7 +58,7 @@ export default function HistoryScreen() {
   return (
     <Box style={styles.container}>
       <Box style={styles.header}>
-        <Heading style={styles.title} className='text-2xl font-bold mt-10'>History</Heading>
+        <Heading style={styles.title} className='text-2xl font-bold'>History</Heading>
         <Text style={styles.subtitle}>Your previously solved questions</Text>
       </Box>
       

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Processing Demo</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Tab styles */
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #ccc;
+        }
+        
+        .tab-btn {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+            border: none;
+            outline: none;
+            font-size: 16px;
+            transition: 0.3s;
+        }
+        
+        .tab-btn:hover {
+            background-color: #ddd;
+        }
+        
+        .tab-btn.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 0 0 5px 5px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Processing Demo</h1>
+        
+        <!-- Tab navigation -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="openTab(event, 'websocket-tab')">WebSocket API</button>
+            <button class="tab-btn" onclick="openTab(event, 'rest-tab')">REST API</button>
+        </div>
+        
+        <!-- WebSocket Tab -->
+        <div id="websocket-tab" class="tab-content active">
+            <h2>WebSocket Processing</h2>
+            <div class="connection-section">
+                <h3>Connection</h3>
+                <div class="input-group">
+                    <label for="server-url">Server URL:</label>
+                    <input type="text" id="server-url" placeholder="ws://localhost:8000/api/pdf/ws/process">
+                </div>
+                <div class="input-group">
+                    <label for="token-input">JWT Token:</label>
+                    <input type="text" id="token-input" placeholder="Enter your JWT token here">
+                </div>
+                <button id="connect-btn">Connect</button>
+                <div class="status-wrapper">
+                    <div class="status-label">Status:</div>
+                    <div id="connection-status" class="status disconnected">Disconnected</div>
+                </div>
+            </div>
+            
+            <div class="upload-section">
+                <h3>Upload PDF</h3>
+                <label for="ws-pdf-input" class="upload-btn">Choose PDF File</label>
+                <input type="file" id="ws-pdf-input" accept=".pdf" style="display: none;">
+                <span id="ws-file-name">No file selected</span>
+                <button id="ws-process-btn" disabled>Process PDF</button>
+            </div>
+            
+            <div class="response-section">
+                <h3>Response:</h3>
+                <div id="ws-response-container" class="html-content"></div>
+            </div>
+        </div>
+        
+        <!-- REST API Tab -->
+        <div id="rest-tab" class="tab-content">
+            <h2>REST API Processing</h2>
+            <div class="upload-section">
+                <h3>Upload Files</h3>
+                <div class="input-group">
+                    <label for="api-url">API URL:</label>
+                    <input type="text" id="api-url" placeholder="http://localhost:8000/api/pdf/process">
+                </div>
+                <div class="input-group">
+                    <label for="api-token">JWT Token:</label>
+                    <input type="text" id="api-token" placeholder="Enter your JWT token here">
+                </div>
+                <div class="file-group">
+                    <label>Question Paper:</label>
+                    <label for="rest-pdf-input" class="upload-btn">Choose PDF File</label>
+                    <input type="file" id="rest-pdf-input" accept=".pdf" style="display: none;">
+                    <span id="rest-file-name">No file selected</span>
+                </div>
+                <div class="file-group">
+                    <label>Reference Book (Optional):</label>
+                    <label for="rest-ref-book-input" class="upload-btn">Choose Reference Book</label>
+                    <input type="file" id="rest-ref-book-input" accept=".pdf" style="display: none;">
+                    <span id="rest-ref-book-name">No file selected</span>
+                </div>
+                <button id="rest-process-btn">Process PDF</button>
+            </div>
+            
+            <div class="response-section">
+                <h3>Response:</h3>
+                <div id="rest-response-container" class="html-content"></div>
+                <div id="rest-metrics" class="metrics"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Tab switching functionality
+        function openTab(evt, tabName) {
+            // Hide all tab content
+            const tabContents = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove("active");
+            }
+            
+            // Remove active class from tab buttons
+            const tabButtons = document.getElementsByClassName("tab-btn");
+            for (let i = 0; i < tabButtons.length; i++) {
+                tabButtons[i].classList.remove("active");
+            }
+            
+            // Show the selected tab and set button to active
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+    </script>
+    <script src="script.js"></script>
+</body>
+</html> 
