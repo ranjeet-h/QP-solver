@@ -28,9 +28,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let isConnected = false;
     
     // Default values
-    const DEFAULT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTQ5MTE2OTEsInN1YiI6InVzZXJAZXhhbXBsZS5jb20ifQ.GRgWUcMrVReKEMn2q_2bxONM14VBaNj5K4zime6gQqE";
+    const DEFAULT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTUwOTg4OTYsInN1YiI6InVzZXJAZXhhbXBsZS5jb20ifQ.QX9N0HxZcVQJJbKKnPDVt0K2mNeEQyACsOf04iBCcFo";
     const DEFAULT_WS_URL = "ws://localhost:8000/api/v1/pdf/ws/process";
     const DEFAULT_API_URL = "http://localhost:8000/api/v1/pdf/process";
+    
+    // Load MathJax for rendering math expressions
+    loadMathJax();
+    
+    // Load Prism.js for syntax highlighting
+    loadPrism();
     
     // Check for token in URL parameters
     const urlParams = new URLSearchParams(window.location.search);
@@ -194,12 +200,18 @@ document.addEventListener('DOMContentLoaded', () => {
             solutionsDiv.innerHTML = result.solutions;
             restResponseContainer.appendChild(solutionsDiv);
             
+            // Apply syntax highlighting to code blocks
+            applyCodeHighlighting(restResponseContainer);
+            
+            // Render math expressions
+            renderMathInElement(restResponseContainer);
+            
             // Display metrics
             restMetrics.innerHTML = `
                 <h3>Metrics:</h3>
                 <ul>
                     <li>Request Time: ${requestTime} seconds</li>
-                    <li>Upload Time: ${result.metrics.upload_time.toFixed(2)} seconds</li>
+                    <li>Upload Time: ${result.metrics.upload_time?.toFixed(2) || 'N/A'} seconds</li>
                     <li>Generation Time: ${result.metrics.generation_time.toFixed(2)} seconds</li>
                     <li>Tokens Used: ${result.metrics.token_count}</li>
                 </ul>
@@ -376,6 +388,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 streamingContainer.appendChild(textNode);
             }
             
+            // Apply syntax highlighting to any code blocks that were just added
+            applyCodeHighlighting(streamingContainer);
+            
+            // Render math expressions that were just added
+            renderMathInElement(streamingContainer);
+            
             // Auto-scroll to bottom
             wsResponseContainer.scrollTop = wsResponseContainer.scrollHeight;
         } catch (error) {
@@ -384,6 +402,95 @@ document.addEventListener('DOMContentLoaded', () => {
             errorDiv.className = 'error';
             errorDiv.textContent = `Error displaying response: ${error.message}`;
             wsResponseContainer.appendChild(errorDiv);
+        }
+    }
+    
+    // Load MathJax for rendering mathematical expressions
+    function loadMathJax() {
+        if (window.MathJax) {
+            return; // Already loaded
+        }
+        
+        // Add MathJax configuration
+        window.MathJax = {
+            tex: {
+                inlineMath: [['\\(', '\\)']],
+                displayMath: [['\\[', '\\]']],
+                processEscapes: true
+            },
+            options: {
+                enableMenu: false,
+                renderActions: {
+                    addMenu: [0, '', '']
+                }
+            },
+            startup: {
+                pageReady: () => {
+                    console.log('MathJax is ready');
+                }
+            }
+        };
+        
+        // Load MathJax script
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js';
+        script.async = true;
+        document.head.appendChild(script);
+    }
+    
+    // Load Prism.js for syntax highlighting
+    function loadPrism() {
+        // Add CSS
+        const prismCSS = document.createElement('link');
+        prismCSS.rel = 'stylesheet';
+        prismCSS.href = 'https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css';
+        document.head.appendChild(prismCSS);
+        
+        // Add JS
+        const prismScript = document.createElement('script');
+        prismScript.src = 'https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js';
+        document.head.appendChild(prismScript);
+        
+        // Add common language components
+        const languages = ['javascript', 'python', 'java', 'cpp', 'csharp', 'markup', 'css', 'sql'];
+        languages.forEach(lang => {
+            const langScript = document.createElement('script');
+            langScript.src = `https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-${lang}.min.js`;
+            document.head.appendChild(langScript);
+        });
+    }
+    
+    // Apply syntax highlighting to code blocks
+    function applyCodeHighlighting(container) {
+        setTimeout(() => {
+            // Wait a bit to ensure Prism is loaded
+            if (window.Prism) {
+                // Find all code blocks
+                const codeBlocks = container.querySelectorAll('pre code, code.language-*, pre.code code');
+                
+                // Highlight each code block
+                codeBlocks.forEach(block => {
+                    if (!block.classList.contains('prism-highlighted')) {
+                        Prism.highlightElement(block);
+                        block.classList.add('prism-highlighted');
+                    }
+                });
+            }
+        }, 200);
+    }
+    
+    // Render math expressions in the given container
+    function renderMathInElement(container) {
+        // If MathJax is loaded and ready
+        if (window.MathJax && window.MathJax.typesetPromise) {
+            try {
+                // Process all new math in the container
+                window.MathJax.typesetPromise([container]).catch(err => {
+                    console.error('MathJax typesetting error:', err);
+                });
+            } catch (e) {
+                console.error('Error rendering math:', e);
+            }
         }
     }
 }); 
