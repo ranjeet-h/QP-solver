@@ -1,7 +1,20 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import (Column, 
+                        Integer, 
+                        String, 
+                        Boolean, 
+                        DateTime, 
+                        ForeignKey, 
+                        Text,
+                        Enum)
 from sqlalchemy.sql import func
 from app.db.database import Base
 import uuid
+
+class PDFStatus:
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 class User(Base):
     __tablename__ = "users"
@@ -19,7 +32,17 @@ class PDF(Base):
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String(255), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"))
-    status = Column(String(50), default="pending")  # pending, processing, completed, failed
+
+    status = Column(Enum(
+        PDFStatus.PENDING,
+        PDFStatus.PROCESSING,
+        PDFStatus.COMPLETED,
+        PDFStatus.FAILED,
+        name='pdf_status_enum'
+    ), 
+    default=PDFStatus.PENDING, 
+    nullable=False)
+    
     created_at = Column(DateTime(timezone=True), default=func.now())
     processed_at = Column(DateTime(timezone=True), nullable=True)
     result_path = Column(String(255), nullable=True)

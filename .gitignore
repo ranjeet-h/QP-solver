@@ -45,3 +45,5 @@ app-example
 *venv
 
 *.env
+
+myenv/

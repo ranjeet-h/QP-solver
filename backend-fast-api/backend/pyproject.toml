@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qp-solver-backend"
+version = "0.1.0"
+description = "Question Paper Solver Backend"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
+
+dependencies = [
+    # Core
+    "fastapi==0.109.0",
+    "uvicorn==0.23.2",
+    "SQLAlchemy==2.0.23",
+    "alembic==1.12.1",
+    "pydantic==2.4.2",
+    
+    # Auth
+    "python-jose==3.3.0",
+    "passlib==1.7.4",
+    "bcrypt==4.3.0",
+    
+    # AI and Processing
+    "google-auth==2.38.0",
+    "google-genai==1.5.0",
+    "PyMuPDF==1.25.4",
+    
+    # Additional dependencies as needed
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=22.0",
+    "isort>=5.0",
+    "mypy>=0.990",
+    "flake8>=5.0",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+
+[tool.mypy]
+python_version = "3.8"
+strict = true
+ignore_missing_imports = true
+plugins = [
+    "pydantic.mypy"
+]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
