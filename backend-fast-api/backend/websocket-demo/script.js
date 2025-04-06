@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const wsProcessBtn = document.getElementById('ws-process-btn');
     const connectionStatus = document.getElementById('connection-status');
     const wsResponseContainer = document.getElementById('ws-response-container');
+    const rawDebugOutput = document.getElementById('raw-debug-output');
     
     // DOM Elements - REST API Tab
     const apiUrlInput = document.getElementById('api-url');
@@ -26,11 +27,32 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedRefBook = null;
     let socket = null;
     let isConnected = false;
+    let accumulatedMarkdown = ''; // Store incoming Markdown
+    let showdownConverter = null; // To store Showdown instance
     
     // Default values
     const DEFAULT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTUwOTg4OTYsInN1YiI6InVzZXJAZXhhbXBsZS5jb20ifQ.QX9N0HxZcVQJJbKKnPDVt0K2mNeEQyACsOf04iBCcFo";
     const DEFAULT_WS_URL = "ws://localhost:8000/api/v1/pdf/ws/process";
     const DEFAULT_API_URL = "http://localhost:8000/api/v1/pdf/process";
+    
+    // Initialize Showdown converter
+    if (window.showdown) {
+        showdownConverter = new showdown.Converter({
+            ghCompatibleHeaderId: true,
+            parseImgDimensions: true,
+            strikethrough: true,
+            tables: true,
+            tasklists: true,
+            smoothLivePreview: true, // Good for live updates
+            simpleLineBreaks: true, // GFM-style line breaks
+            openLinksInNewWindow: true,
+            // Add extensions here if needed later
+        });
+        showdownConverter.setFlavor('github'); // Use GFM flavor
+        console.log("Showdown converter initialized.");
+    } else {
+        console.error("Showdown library not loaded!");
+    }
     
     // Load MathJax for rendering math expressions
     loadMathJax();
@@ -109,19 +131,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // WebSocket - Handle process button click
+    // WebSocket - Handle process button click (Clear accumulatedMarkdown)
     wsProcessBtn.addEventListener('click', () => {
         if (!isConnected) {
-            appendToWsResponse("Not connected. Please connect first.");
+            appendToWsResponse("Not connected. Please connect first.", "system-message");
             return;
         }
         
         if (selectedWsFile && selectedWsFile.type === 'application/pdf') {
-            // Clear response container before new processing
             wsResponseContainer.innerHTML = '';
+            if (rawDebugOutput) rawDebugOutput.innerText = '';
+            accumulatedMarkdown = ''; // Reset markdown buffer
             
-            // Send file
-            sendPdfFile();
+            uploadPDF(selectedWsFile);
         } else {
             alert('Please select a valid PDF file');
         }
@@ -223,16 +245,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Connect to WebSocket
+    // Connect to WebSocket (Clear accumulatedMarkdown)
     function connectWebSocket(url, token) {
         // Close existing connection if any
         if (socket) {
             socket.close();
         }
         
-        // Clear previous response
         wsResponseContainer.innerHTML = '';
-        appendToWsResponse(`Connecting to ${url}...`);
+        if (rawDebugOutput) rawDebugOutput.innerText = '';
+        accumulatedMarkdown = ''; // Reset markdown buffer
+        appendToWsResponse(`Connecting to ${url}...`, "system-message", true);
         
         // Update status
         updateConnectionStatus('connecting');
@@ -241,86 +264,135 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             socket = new WebSocket(url);
             
-            // WebSocket event handlers
-            socket.onopen = () => {
+            // --- START: Replaced WebSocket Handlers ---
+            socket.addEventListener('open', (event) => {
+                console.log('WebSocket connection established');
                 updateConnectionStatus('connected');
                 isConnected = true;
                 appendToWsResponse("Connection established. Sending authentication...");
-                
+
                 // Enable process button if file is selected
                 if (selectedWsFile) {
                     wsProcessBtn.disabled = false;
                 }
-                
-                // Send authentication token
-                sendAuthToken(token);
-            };
-            
-            socket.onmessage = (event) => {
-                // Process the received HTML data
-                if (event.data.includes('Ready to receive PDF file.') && selectedWsFile) {
-                    appendHTMLResponse(event.data);
-                    sendPdfFile();
-                } else {
-                    appendHTMLResponse(event.data);
+
+                // Send authentication token (use existing token variable)
+                const userToken = tokenInput.value.trim();
+                if (userToken) {
+                     try {
+                        const authMessage = JSON.stringify({ token: userToken });
+                        socket.send(authMessage);
+                        appendToWsResponse("Authentication token sent", "system-message");
+                        console.log("Auth data sent:", { token: "***" });
+                    } catch (error) {
+                        appendToWsResponse(`Failed to send authentication: ${error.message}`, "system-message");
+                        console.error("Auth send error:", error);
+                    }
                 }
-            };
-            
-            socket.onclose = (event) => {
+            });
+
+            // Handle incoming messages
+            socket.addEventListener('message', (event) => {
+                const messageData = event.data;
+                console.log('Message from server:', messageData);
+
+                // --- START: Separate Status/Debug Messages from Markdown --- 
+                const statusPrefixes = ['[INFO]', '[DEBUG]', '[WARNING]', '[ERROR]'];
+                let isStatusMessage = false;
+                for (const prefix of statusPrefixes) {
+                    if (messageData.startsWith(prefix)) {
+                        isStatusMessage = true;
+                        break;
+                    }
+                }
+
+                // Append to raw debug output (ALL messages for full log)
+                if (rawDebugOutput) {
+                    rawDebugOutput.innerText += messageData + '\n'; // Add newline for readability
+                    // rawDebugOutput.scrollTop = rawDebugOutput.scrollHeight;
+                }
+
+                // If it's NOT a status message, treat it as Markdown content
+                if (!isStatusMessage) {
+                    // Accumulate ONLY Markdown message content
+                    accumulatedMarkdown += messageData;
+                    
+                    // Render incrementally (keeps the streaming appearance)
+                    renderMarkdownToHtml(accumulatedMarkdown);
+                } else {
+                    // Optionally, display status messages elsewhere if needed, 
+                    // but for now, they are just in the raw debug output.
+                    console.log("Status/Debug message handled: ", messageData); 
+                }
+                // --- END: Separate Status/Debug Messages from Markdown ---
+            });
+
+            // Handle errors
+            socket.addEventListener('error', (event) => {
+                console.error('WebSocket error:', event);
                 updateConnectionStatus('disconnected');
                 isConnected = false;
                 wsProcessBtn.disabled = true;
-                appendToWsResponse(`Connection closed. ${event.reason ? "Reason: " + event.reason : ""}`, "system-message");
-            };
-            
-            socket.onerror = (error) => {
-                console.error('WebSocket error:', error);
+                appendToWsResponse(`<div class='error'><p>WebSocket connection error</p></div>`);
+            });
+
+            // Handle connection close (This is where final rendering and formatting should happen)
+            socket.addEventListener('close', (event) => {
                 updateConnectionStatus('disconnected');
                 isConnected = false;
                 wsProcessBtn.disabled = true;
-                appendToWsResponse(`Error: Connection failed. Check console for details.`, "system-message");
-            };
+                const reason = event.reason ? `: ${event.reason}` : '';
+                console.log(`WebSocket connection closed with code ${event.code}${reason}`);
+
+                console.log("Connection closed. Rendering final Markdown one last time..."); // DEBUG
+                // Ensure the very last state of markdown is rendered using the full accumulated content
+                renderMarkdownToHtml(accumulatedMarkdown);
+
+                // Append the close message distinctly AFTER final render
+                appendSystemHtml(`<div class='info'><p>Connection closed${reason}</p></div>`);
+
+                console.log("Calling triggerFinalRendering after close..."); // DEBUG
+                // Apply final highlighting and MathJax to the fully rendered content
+                triggerFinalRendering(); // Re-enable this call
+            });
+            // --- END: Replaced WebSocket Handlers ---
+
         } catch (error) {
             appendToWsResponse(`Failed to connect: ${error.message}`, "system-message");
             updateConnectionStatus('disconnected');
         }
     }
     
-    // Send authentication token
-    function sendAuthToken(token) {
-        try {
-            const authData = JSON.stringify({ token: token });
-            socket.send(authData);
-            appendToWsResponse("Authentication token sent", "system-message");
-            console.log("Auth data sent:", { token: "***" });
-        } catch (error) {
-            appendToWsResponse(`Failed to send authentication: ${error.message}`, "system-message");
-            console.error("Auth send error:", error);
+    // Function to upload a PDF file (adapted from user input)
+    function uploadPDF(file) { 
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            console.error('WebSocket not connected');
+            appendToWsResponse("<div class='error'><p>WebSocket not connected. Please connect first.</p></div>");
+            return;
         }
-    }
-    
-    // Send PDF file after authentication
-    function sendPdfFile() {
+        
+        // Backend expects auth first, then binary data directly (based on previous logic)
+        // We already sent auth in onopen. Now send binary.
         appendToWsResponse("Preparing to send PDF file...", "system-message");
-        
+
         const reader = new FileReader();
-        
         reader.onload = (e) => {
             try {
-                const arrayBuffer = e.target.result;
-                socket.send(arrayBuffer);
-                appendToWsResponse(`PDF file sent (${formatBytes(arrayBuffer.byteLength)})`, "system-message");
+                // Send the binary data
+                socket.send(e.target.result);
+                appendToWsResponse(`PDF file sent (${formatBytes(e.target.result.byteLength)})`, "system-message");
             } catch (error) {
-                appendToWsResponse(`Failed to send PDF: ${error.message}`, "system-message");
-                console.error("File send error:", error);
+                 appendToWsResponse(`Failed to send PDF: ${error.message}`, "system-message");
+                 console.error("File send error:", error);
             }
         };
-        
         reader.onerror = (error) => {
-            appendToWsResponse(`Failed to read PDF: ${error.message || 'Unknown error'}`, "system-message");
+            console.error('Error reading file:', error);
+            appendToWsResponse(`<div class='error'><p>Error reading file: ${error}</p></div>`);
         };
         
-        reader.readAsArrayBuffer(selectedWsFile);
+        // Read file as ArrayBuffer for binary transmission
+        reader.readAsArrayBuffer(file);
     }
     
     // Helper function to format bytes
@@ -340,69 +412,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Append regular response to the WebSocket container
-    function appendToWsResponse(message, className = "") {
-        console.log("Received:", message);
+    function appendToWsResponse(message, className = "", clearFirst = false) { 
+        // If clearFirst is true, ensure the container is empty
+        if (clearFirst) {
+             wsResponseContainer.innerHTML = '';
+        }
+        
+        // Don't log system messages here if appendHTMLResponse also logs
+        // console.log("Received (System):", message); 
         
         const messageElement = document.createElement('div');
-        messageElement.textContent = message;
+        // Use textContent for system messages to avoid HTML injection if message somehow contains tags
+        messageElement.textContent = message; 
         if (className) {
             messageElement.className = className;
         }
         wsResponseContainer.appendChild(messageElement);
         
         // Auto-scroll to bottom
-        wsResponseContainer.scrollTop = wsResponseContainer.scrollHeight;
-    }
-    
-    // Append HTML content directly
-    function appendHTMLResponse(html) {
-        console.log("HTML content received:", html);
-        
-        try {
-            // For the first message, create a container for streaming content
-            if (!document.getElementById('streaming-container')) {
-                wsResponseContainer.innerHTML = '';
-                const streamingContainer = document.createElement('div');
-                streamingContainer.id = 'streaming-container';
-                wsResponseContainer.appendChild(streamingContainer);
-            }
-            
-            const streamingContainer = document.getElementById('streaming-container');
-            
-            // Check if content might be HTML
-            const isHTML = /<[a-z][\s\S]*>/i.test(html);
-            
-            if (isHTML) {
-                // For HTML content, create a document fragment to append
-                // This avoids issues with partial HTML tags
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = html;
-                
-                // Move each node to the streaming container
-                while (tempDiv.firstChild) {
-                    streamingContainer.appendChild(tempDiv.firstChild);
-                }
-            } else {
-                // For plain text, handle as a text node
-                const textNode = document.createTextNode(html);
-                streamingContainer.appendChild(textNode);
-            }
-            
-            // Apply syntax highlighting to any code blocks that were just added
-            applyCodeHighlighting(streamingContainer);
-            
-            // Render math expressions that were just added
-            renderMathInElement(streamingContainer);
-            
-            // Auto-scroll to bottom
-            wsResponseContainer.scrollTop = wsResponseContainer.scrollHeight;
-        } catch (error) {
-            console.error("Error appending HTML:", error);
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error';
-            errorDiv.textContent = `Error displaying response: ${error.message}`;
-            wsResponseContainer.appendChild(errorDiv);
-        }
+        // wsResponseContainer.scrollTop = wsResponseContainer.scrollHeight;
     }
     
     // Load MathJax for rendering mathematical expressions
@@ -414,8 +442,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add MathJax configuration
         window.MathJax = {
             tex: {
-                inlineMath: [['\\(', '\\)']],
-                displayMath: [['\\[', '\\]']],
+                inlineMath: [['$', '$']], // Use $ for inline
+                displayMath: [['$$', '$$']], // Use $$ for display
                 processEscapes: true
             },
             options: {
@@ -460,37 +488,141 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
-    // Apply syntax highlighting to code blocks
+    // Apply syntax highlighting (Adjust selector)
     function applyCodeHighlighting(container) {
+        // This is called AFTER Showdown creates HTML from Markdown
         setTimeout(() => {
-            // Wait a bit to ensure Prism is loaded
             if (window.Prism) {
-                // Find all code blocks
-                const codeBlocks = container.querySelectorAll('pre code, code.language-*, pre.code code');
+                // Showdown generates <pre><code class="language-..."> tags
+                const codeBlocks = container.querySelectorAll('pre code[class*="language-"]');
+                console.log(`Found ${codeBlocks.length} code blocks to highlight.`);
                 
-                // Highlight each code block
                 codeBlocks.forEach(block => {
-                    if (!block.classList.contains('prism-highlighted')) {
-                        Prism.highlightElement(block);
-                        block.classList.add('prism-highlighted');
+                    // Check if already highlighted by Prism
+                    if (!block.classList.contains('language-none') && !block.closest('.prism-highlighted')) {
+                         // --- DEBUG: Add try...catch for Prism --- 
+                         try {
+                             console.log("Highlighting block:", block); // DEBUG
+                             Prism.highlightElement(block);
+                             console.log("Highlighting successful for block."); // DEBUG
+                             // Mark parent <pre> as highlighted
+                             if(block.parentNode.tagName === 'PRE') {
+                                 block.parentNode.classList.add('prism-highlighted');
+                             }
+                         } catch (e) {
+                             console.error("Prism highlighting error:", e, block); // Log Prism specific error
+                         }
+                         // -------------------------------------
+                    } else if (block.classList.contains('language-none')) {
+                         console.log("Skipping Prism for language-none block.");
                     }
                 });
+            } else {
+                console.warn("Prism not loaded when attempting to highlight.");
             }
-        }, 200);
+        }, 100); 
     }
     
-    // Render math expressions in the given container
+    // Render math expressions (Called by triggerFinalRendering)
     function renderMathInElement(container) {
-        // If MathJax is loaded and ready
         if (window.MathJax && window.MathJax.typesetPromise) {
             try {
-                // Process all new math in the container
-                window.MathJax.typesetPromise([container]).catch(err => {
+                console.log("Starting MathJax typesetting...");
+                window.MathJax.typesetPromise([container]).then(() => {
+                    console.log("MathJax typesetting finished.");
+                }).catch(err => {
                     console.error('MathJax typesetting error:', err);
                 });
             } catch (e) {
-                console.error('Error rendering math:', e);
+                console.error('Error calling MathJax:', e);
             }
+        } else {
+             console.warn("MathJax not ready for rendering.");
         }
+    }
+    
+    // Trigger final rendering (Calls the processing functions)
+    function triggerFinalRendering() {
+        const streamingContainer = document.getElementById('streaming-container');
+        if (streamingContainer) {
+            console.log("Triggering final rendering (Code Highlighting & MathJax)...", streamingContainer);
+            // Run sequentially: first process code tags, then render math
+            applyCodeHighlighting(streamingContainer); 
+            // Add a slight delay before MathJax to ensure DOM is updated after code replacement
+            setTimeout(() => {
+                 renderMathInElement(streamingContainer);
+            }, 50); 
+        } else {
+             console.log("Final rendering trigger: streaming container not found.");
+        }
+    }
+
+    // --- NEW Function to render Markdown to HTML --- 
+    function renderMarkdownToHtml(markdownText) {
+        if (!showdownConverter) {
+            console.error("Showdown converter not ready.");
+            wsResponseContainer.innerHTML = '<p style="color: red;">Error: Markdown converter failed to load.</p>';
+            return;
+        }
+        // --- DEBUG: Log accumulated markdown --- 
+        console.log("--- Accumulated Markdown START ---");
+        console.log(markdownText); 
+        console.log("--- Accumulated Markdown END ---");
+        // ---------------------------------------
+        try {
+            console.log("Converting Markdown to HTML..."); // DEBUG
+            const html = showdownConverter.makeHtml(markdownText);
+            console.log("Markdown conversion successful. Setting innerHTML..."); // DEBUG
+            
+            // Ensure the container exists (needed if called before appendHTMLResponse)
+            let streamingContainer = document.getElementById('streaming-container');
+            if (!streamingContainer) {
+                wsResponseContainer.innerHTML = ''; 
+                streamingContainer = document.createElement('div');
+                streamingContainer.id = 'streaming-container';
+                streamingContainer.classList.add('markdown-content'); // Use a specific class
+                wsResponseContainer.appendChild(streamingContainer);
+            }
+            // Update the container with the fully parsed HTML
+            streamingContainer.innerHTML = html;
+            console.log("innerHTML set successfully."); // DEBUG
+            // wsResponseContainer.scrollTop = wsResponseContainer.scrollHeight;
+
+        } catch (error) {
+            console.error("Error converting Markdown:", error);
+            wsResponseContainer.innerHTML = `<p style="color: red;">Error rendering Markdown: ${error.message}</p>`;
+        }
+    }
+
+    // --- NEW Function to append final non-Markdown message ---
+    function appendFinalMessage(html) {
+         let streamingContainer = document.getElementById('streaming-container');
+         if (streamingContainer) {
+             const tempDiv = document.createElement('div');
+             tempDiv.innerHTML = html;
+             while(tempDiv.firstChild){
+                 streamingContainer.appendChild(tempDiv.firstChild);
+             }
+            //  wsResponseContainer.scrollTop = wsResponseContainer.scrollHeight;
+         } else {
+             // Fallback if container doesn't exist somehow
+             wsResponseContainer.innerHTML += html;
+         }
+    }
+
+    // --- RENAME appendFinalMessage to appendSystemHtml for clarity ---
+    // This function is for adding HTML content that is NOT part of the markdown stream
+    function appendSystemHtml(html) {
+         let container = wsResponseContainer; // Append directly to the main container
+         if (container) {
+             const tempDiv = document.createElement('div');
+             tempDiv.innerHTML = html;
+             while(tempDiv.firstChild){
+                 container.appendChild(tempDiv.firstChild);
+             }
+            //  container.scrollTop = container.scrollHeight;
+         } else {
+             console.error("Cannot append system HTML: wsResponseContainer not found.");
+         }
     }
 }); 

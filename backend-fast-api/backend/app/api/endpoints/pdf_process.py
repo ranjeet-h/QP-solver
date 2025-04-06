@@ -1,6 +1,8 @@
 import os
 import time
 import tempfile
+import traceback
+import asyncio
 from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, HTTPException, status
 from sqlalchemy.orm import Session
@@ -21,6 +23,77 @@ except ImportError:
     print("WARNING: JWT package not installed, token validation will be mocked")
 
 router = APIRouter()
+
+# --- START: Synchronous Text Extraction Function ---
+def extract_text_sync(file_path: str) -> tuple[str, int]:
+    """Synchronous function to extract text using PyMuPDF."""
+    extracted_text = ""
+    page_count = 0
+    print(f"[extract_text_sync] Starting extraction for: {file_path}")
+    try:
+        # Verify the file is still accessible
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"[extract_text_sync] PDF file disappeared before extraction could start")
+        
+        # Log detailed information about the file
+        file_info = os.stat(file_path)
+        print(f"[extract_text_sync] File details: Size={file_info.st_size} bytes, Permissions={oct(file_info.st_mode)[-3:]}")
+        
+        # Open the PDF file with error diagnostics
+        try:
+            pdf_document = fitz.open(file_path)
+            page_count = len(pdf_document)
+            print(f"[extract_text_sync] PDF opened successfully: {page_count} pages")
+        except Exception as open_error:
+            raise ValueError(f"[extract_text_sync] Failed to open PDF document: {str(open_error)}")
+        
+        # Make sure we have a valid document
+        if not pdf_document:
+            raise ValueError("[extract_text_sync] PDF document is None or invalid")
+            
+        if page_count == 0:
+            raise ValueError("[extract_text_sync] PDF document has no pages")
+        
+        # Extract text from each page with individual page error handling
+        for page_num in range(page_count):
+            try:
+                page = pdf_document[page_num]
+                if not page:
+                    print(f"[extract_text_sync] Warning: Page {page_num + 1} is invalid, skipping")
+                    continue
+                    
+                page_text = page.get_text()
+                extracted_text += f"\n--- Page {page_num + 1} ---\n{page_text}"
+                
+                # Progress reporting for large documents (logged to server console)
+                if page_num % 5 == 0 or page_num == page_count - 1:
+                    print(f"[extract_text_sync] Processed page {page_num + 1} of {page_count}")
+                    
+            except Exception as page_error:
+                print(f"[extract_text_sync] Warning: Error on page {page_num + 1}: {str(page_error)}")
+                extracted_text += f"\n--- Page {page_num + 1} (Error: {str(page_error)}) ---\n"
+        
+        # Close the document
+        try:
+            pdf_document.close()
+            print("[extract_text_sync] PDF document closed properly")
+        except Exception as close_error:
+            print(f"[extract_text_sync] Warning when closing PDF: {str(close_error)}")
+        
+        # Check if we got any text
+        text_size = len(extracted_text)
+        if text_size == 0:
+            # Don't raise error here, let the main function decide
+            print("[extract_text_sync] Warning: No text could be extracted from the PDF")
+            
+        print(f"[extract_text_sync] Successfully extracted {text_size} characters from {page_count} pages")
+        return extracted_text, page_count
+        
+    except Exception as extract_error:
+        # Log the error and re-raise to be caught by the caller
+        print(f"[extract_text_sync] Error during extraction: {extract_error}")
+        raise ValueError(f"Error extracting PDF text: {str(extract_error)}")
+# --- END: Synchronous Text Extraction Function ---
 
 def validate_token(token: str) -> Optional[Dict[str, Any]]:
     """
@@ -69,14 +142,15 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
         if file_size == 0:
             raise ValueError("PDF file is empty (0 bytes)")
             
-        await websocket.send_text(f"<div class='info'><p>Found PDF file: {os.path.basename(file_path)} ({file_size} bytes)</p></div>")
+        # Send plain text status
+        await websocket.send_text(f"[INFO] Found PDF file: {os.path.basename(file_path)} ({file_size} bytes)")
         
         # Check if user exists and create a dummy user if needed (for development)
         try:
             # Check if the user exists
             user = db.query(models.User).filter(models.User.id == user_id).first()
             if not user:
-                await websocket.send_text("<div class='info'><p>Creating dummy user for development...</p></div>")
+                await websocket.send_text("[INFO] Creating dummy user for development...")
                 # Create a dummy user for development purposes
                 dummy_user = models.User(
                     id=user_id,
@@ -87,7 +161,8 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
                 db.add(dummy_user)
                 db.commit()
         except Exception as user_error:
-            await websocket.send_text(f"<div class='error'><p>Warning: Could not check/create user: {str(user_error)}</p></div>")
+            # Send plain text warning
+            await websocket.send_text(f"[WARNING] Could not check/create user: {str(user_error)}")
             # Continue without creating PDF record
             pass
         
@@ -102,116 +177,79 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
             db.commit()
             db.refresh(pdf_record)
         except Exception as db_error:
-            await websocket.send_text(f"<div class='warning'><p>Could not create PDF record: {str(db_error)}</p></div>")
+            # Send plain text warning
+            await websocket.send_text(f"[WARNING] Could not create PDF record: {str(db_error)}")
             # Continue without the record
             pdf_record = None
         
-        await websocket.send_text("<div class='info'><p>Initializing PDF processing...</p></div>")
+        # Send plain text status
+        await websocket.send_text("[INFO] Initializing PDF processing...")
         
         # Initialize the API client
         api_key = settings.GEMINI_API_KEY
         client = genai.Client(api_key=api_key)
         
-        # Log the processing start
-        await websocket.send_text(f"<div class='info'><p>Processing '{os.path.basename(file_path)}'...</p></div>")
         start_time = time.time()
         
-        # Extract text from PDF using PyMuPDF
-        await websocket.send_text("<div class='info'><p>Extracting text from PDF with PyMuPDF...</p></div>")
-        extracted_text = ""
-        
+        # --- START: Run Extraction in Thread --- 
+        # Send plain text status
+        await websocket.send_text("[INFO] Starting text extraction (in background thread)...")
         try:
-            # Verify the file is still accessible
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"PDF file disappeared before extraction could start")
-            
-            # Log detailed information about the file
-            file_info = os.stat(file_path)
-            await websocket.send_text(f"<div class='info'><p>File details: Size={file_info.st_size} bytes, Permissions={oct(file_info.st_mode)[-3:]}</p></div>")
-            
-            # Open the PDF file with error diagnostics
-            try:
-                pdf_document = fitz.open(file_path)
-                await websocket.send_text(f"<div class='info'><p>PDF opened successfully: {len(pdf_document)} pages</p></div>")
-            except Exception as open_error:
-                # More specific error for PDF opening failures
-                raise ValueError(f"Failed to open PDF document: {str(open_error)}")
-            
-            # Make sure we have a valid document
-            if not pdf_document:
-                raise ValueError("PDF document is None or invalid")
-                
-            if len(pdf_document) == 0:
-                raise ValueError("PDF document has no pages")
-            
-            # Extract text from each page with individual page error handling
-            page_count = len(pdf_document)
-            for page_num in range(page_count):
-                try:
-                    # Get the page with error checking
-                    page = pdf_document[page_num]
-                    if not page:
-                        await websocket.send_text(f"<div class='warning'><p>Page {page_num + 1} is invalid, skipping</p></div>")
-                        continue
-                        
-                    # Extract text with error checking
-                    page_text = page.get_text()
-                    extracted_text += f"\n--- Page {page_num + 1} ---\n{page_text}"
-                    
-                    # Progress reporting for large documents
-                    if page_num % 5 == 0 or page_num == page_count - 1:
-                        await websocket.send_text(f"<div class='info'><p>Processed page {page_num + 1} of {page_count}</p></div>")
-                        
-                except Exception as page_error:
-                    # Don't fail the whole document for a single page error
-                    await websocket.send_text(f"<div class='warning'><p>Error on page {page_num + 1}: {str(page_error)}</p></div>")
-                    extracted_text += f"\n--- Page {page_num + 1} (Error: {str(page_error)}) ---\n"
-            
-            # Close the document in a try/finally to ensure it gets closed
-            try:
-                pdf_document.close()
-                await websocket.send_text("<div class='info'><p>PDF document closed properly</p></div>")
-            except Exception as close_error:
-                await websocket.send_text(f"<div class='warning'><p>Warning when closing PDF: {str(close_error)}</p></div>")
-            
-            # Check if we got any text
+            # Use asyncio.to_thread to run the sync function
+            extracted_text, page_count = await asyncio.to_thread(extract_text_sync, file_path)
             text_size = len(extracted_text)
+            # Send plain text status
+            await websocket.send_text(f"[INFO] Extraction complete: {text_size} chars, {page_count} pages.")
             if text_size == 0:
-                raise ValueError("No text could be extracted from the PDF")
-                
-            await websocket.send_text(f"<div class='info'><p>Successfully extracted {text_size} characters from {page_count} pages</p></div>")
-            
-        except Exception as extract_error:
-            # Provide detailed error information
-            error_msg = f"Error extracting PDF text: {str(extract_error)}"
-            await websocket.send_text(f"<div class='error'><p>{error_msg}</p></div>")
-            raise ValueError(error_msg)
-        
-        # Prepare prompt
-        prompt_text = """
-        You are an AI assistant specialized in analyzing and solving content from PDF documents. Your task is to analyze the provided PDF content and generate detailed, well-formatted responses. Please follow these guidelines:
+                 raise ValueError("No text could be extracted from the PDF (post-thread).")
+        except Exception as thread_error:
+            error_msg = f"Error during threaded text extraction: {str(thread_error)}"
+            # Send plain text error
+            await websocket.send_text(f"[ERROR] {error_msg}")
+            # Re-raise to ensure the main try-except block catches it for cleanup/DB update
+            raise ValueError(error_msg) 
+        # --- END: Run Extraction in Thread --- 
 
-        1. Identify the type of content in the PDF (academic questions, mathematical expressions, code, general text) and respond appropriately.
-        
-        2. For academic questions: Label your solutions accordingly (e.g., Question 1, Question 2) and provide clear, step-by-step explanations.
-        
-        3. For mathematical expressions: Use proper HTML notation with MathJax compatibility. Render complex equations using the following format:
-           - Inline math: <span class="math-inline">\\(equation\\)</span>
-           - Display math: <div class="math-display">\\[equation\\]</div>
-           
-        4. For code snippets: Present code in properly formatted HTML with syntax highlighting:
-           <pre class="code language-[language]"><code>[code content]</code></pre>
-           
-        5. Format your entire response as HTML. Use proper HTML tags such as <h1>, <h2>, <p>, <ul>, <li>, etc. Do not use Markdown.
-        
-        6. If dealing with multiple parts or sections, address each part separately with clear headings.
-        
-        7. If the content contains diagrams or figures that you cannot reproduce, acknowledge them and describe what they likely represent based on the surrounding context.
+        extraction_duration = time.time() - start_time
+        # Send plain text status
+        await websocket.send_text(f"[INFO] Extraction took {extraction_duration:.2f}s.")
 
-        Begin your response with an appropriate HTML title based on the content type, such as '<h1>Solutions to [Document Title]</h1>' or '<h1>Analysis of [Document Topic]</h1>'.
-        
-        Here is the extracted text from the PDF:
-        
+        # --- Prepare and run Gemini (mostly unchanged) --- 
+        prompt_text = f"""
+        You are an expert AI assistant specialized in analyzing PDF content and generating high-quality, well-structured **GitHub Flavored Markdown (GFM)** responses suitable for rendering in web applications.
+
+        **Task:** Analyze the provided PDF text and generate a detailed, accurate, and presentation-ready GFM response.
+
+        **Formatting Guidelines (Strict):**
+
+        1.  **Overall Structure:** Format your entire response using standard GFM. Use headings (`#`, `##`), lists (`*`, `-`, `1.`), bold (`**...**`), italics (`*...*`), etc.
+        2.  **Content Identification:** Identify the type of content (e.g., academic questions, technical documentation, general text) and structure your response accordingly.
+        3.  **Academic Questions:** Label solutions clearly (e.g., using `## Question 1`, `### Part a)`). Provide step-by-step explanations where appropriate.
+        4.  **Mathematical Expressions (LaTeX):** CRITICAL: Use standard LaTeX delimiters ONLY:
+            *   Inline math: Use `$` followed by the LaTeX expression, followed by `$`. Example: `The formula is $E=mc^2$.`
+            *   Display math: Use `$$` followed by the LaTeX expression, followed by `$$`. Example: `$$
+            \\sum_{{i=1}}^n i = \\frac{{n(n+1)}}{{2}}
+            $$`
+        5.  **Code Snippets:** Use standard GFM fenced code blocks:
+            *   Start the block with three backticks followed by the language name (e.g., ```c, ```python).
+            *   Place ALL code lines within the fences.
+            *   End the block with three backticks on a new line.
+            *   Example:
+                ```python
+                def hello():
+                    print("Hello")
+                ```
+        6.  **Headings and Sections:** Use headings (`#`, `##`, etc.) logically to structure the content. Address distinct parts or questions separately.
+        7.  **Diagrams/Figures:** If the PDF contains visual elements you cannot reproduce, explicitly state this (e.g., `*Note: The original document included a diagram here illustrating...*`) and describe its likely content based on context.
+        8.  **Clarity:** Ensure explanations are clear, concise, and easy to follow.
+        9.  **Error Handling:** If parts of the input text are garbled or incomprehensible, indicate this clearly, perhaps using italics: `*Unclear or garbled text segment*`.
+
+        **Output:** Start your response directly with the main content, usually beginning with a `#` title appropriate for the document (e.g., `# Solutions for [Document Title]`). Do NOT output raw HTML tags.
+
+        **Input PDF Text:**
+        --- BEGIN PDF TEXT ---
+        {extracted_text}
+        --- END PDF TEXT ---
         """
         
         # Configure generation settings
@@ -224,47 +262,76 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
         )
         
         # Generate solutions
-        await websocket.send_text("<div class='info'><p>Generating solutions...</p></div>")
+        # Send plain text status
+        await websocket.send_text("[INFO] Generating solutions...")
         token_count = 0
         generation_start = time.time()
         
-        # Stream the responses
         await websocket.send_text("\n<div class='solution-container'>")
-        
-        # Combine prompt with extracted text
         full_prompt = prompt_text + "\n\n" + extracted_text
         
-        # Add a message explaining what we're doing
-        await websocket.send_text("<div class='info'><p>Sending extracted PDF text to Gemini API...</p></div>")
-        print(full_prompt)
-        # Use the text prompt directly instead of file upload
+        await websocket.send_text("[INFO] Sending extracted PDF text to Gemini API...")
+        
         try:
-            for chunk in client.models.generate_content_stream(
+            # --- DEBUG: Message before starting stream --- 
+            # Send plain text debug message
+            await websocket.send_text("[DEBUG] Attempting to initiate Gemini stream...")
+            response_stream = client.models.generate_content_stream(
                 model="gemini-2.0-flash-lite",
                 contents=full_prompt,
                 config=generate_config
-            ):
-                if hasattr(chunk, 'text') and chunk.text:
+            )
+            # --- DEBUG: Message after initiating stream --- 
+            # Send plain text debug message
+            await websocket.send_text("[DEBUG] Gemini stream initiated. Starting iteration...")
+            print("Starting to process Gemini response stream...")
+            store_text = ""
+            first_chunk_received = False
+            for chunk in response_stream:
+                 # --- DEBUG: Message upon receiving any chunk --- 
+                 if not first_chunk_received:
+                     # Send plain text debug message
+                     await websocket.send_text("[DEBUG] Received first chunk from stream.")
+                     first_chunk_received = True
+                 
+                 if hasattr(chunk, 'text') and chunk.text:
+                    # --- DEBUG: Explicit yield before sending --- 
+                    await asyncio.sleep(0)
                     print(f"Sending chunk of size: {len(chunk.text)}")
+                    store_text += chunk.text
                     await websocket.send_text(chunk.text)
                     token_count += chunk.token_count if hasattr(chunk, 'token_count') else len(chunk.text.split())
-                else:
-                    # Handle empty chunks if they occur
-                    print("Received empty chunk from Gemini API")
+                 else:
+                     print("Received empty or non-text chunk from Gemini API")
+            
+            # --- DEBUG: Message after loop finishes --- 
+            # Send plain text debug message
+            await websocket.send_text("[DEBUG] Finished iterating Gemini stream.")
+            print("Finished processing Gemini response stream.")
+            print(f"Final store_text ** -- ** --- *** ----: {store_text}")
+            
         except Exception as stream_error:
             print(f"Error during content streaming: {str(stream_error)}")
-            await websocket.send_text(f"<div class='error'><p>Error during content generation: {str(stream_error)}</p></div>")
+            print(f"Error type: {type(stream_error)}")
+            # Use traceback to print full stack trace
+            print(f"Error details: {traceback.format_exc()}") 
+            # Send plain text error
+            await websocket.send_text(f"[ERROR] Error during content generation: {str(stream_error)}")
             raise
-        
+
         generation_time = time.time() - generation_start
-        await websocket.send_text("</div>\n")
+        # Remove the closing div
+        # await websocket.send_text("</div>\n")
         
-        # Display metrics
-        await websocket.send_text("\n<div class='metrics'><h3>Metrics:</h3>")
-        await websocket.send_text(f"<ul><li>Text Extraction Time: {time.time() - start_time - generation_time:.2f} seconds</li>")
-        await websocket.send_text(f"<li>Generation Time: {generation_time:.2f} seconds</li>")
-        await websocket.send_text(f"<li>Estimated Tokens Used: {token_count}</li>")
-        await websocket.send_text(f"<li>Characters Extracted: {len(extracted_text)}</li></ul></div>")
+        # Display metrics as Markdown
+        metrics_md = (
+            "\n### Metrics\n"
+            f"* Text Extraction Time: {extraction_duration:.2f} seconds\n"
+            f"* Generation Time: {generation_time:.2f} seconds\n"
+            f"* Estimated Tokens Used: {token_count}\n"
+            f"* Characters Extracted: {len(extracted_text)}\n"
+        )
+        await websocket.send_text(metrics_md)
         
         # Update PDF record
         if pdf_record:
@@ -273,14 +340,17 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
                 pdf_record.processed_at = datetime.now()
                 db.commit()
             except Exception as update_error:
-                await websocket.send_text(f"<div class='warning'><p>Could not update PDF record: {str(update_error)}</p></div>")
+                # Send plain text warning
+                await websocket.send_text(f"[WARNING] Could not update PDF record: {str(update_error)}")
         
-        await websocket.send_text("<p><strong>Processing complete.</strong></p>")
+        # Send plain text completion message
+        await websocket.send_text("\n**Processing complete.**")
         
     except Exception as e:
         print(e)
         error_message = f"Error processing PDF: {str(e)}"
-        await websocket.send_text(f"<div class='error'><p>{error_message}</p></div>")
+        # Send plain text error
+        await websocket.send_text(f"[ERROR] {error_message}")
         
         # Update PDF record with error status
         if pdf_record:
@@ -289,14 +359,16 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
                 pdf_record.error_message = str(e)
                 db.commit()
             except Exception as update_error:
-                await websocket.send_text(f"<div class='warning'><p>Could not update PDF record with error status: {str(update_error)}</p></div>")
+                # Send plain text warning
+                await websocket.send_text(f"[WARNING] Could not update PDF record with error status: {str(update_error)}")
             
     finally:
         # Clean up temporary file
         if 'file_path' in locals() and file_path and file_path.startswith(tempfile.gettempdir()) and os.path.exists(file_path):
             try:
                 os.remove(file_path)
-                await websocket.send_text("<div class='info'><p>Temporary file cleaned up</p></div>")
+                # Send plain text status
+                await websocket.send_text("[INFO] Temporary file cleaned up")
             except Exception as temp_cleanup_error:
                 print(f"Error cleaning up temp file: {temp_cleanup_error}")
 
@@ -307,8 +379,8 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
     authenticated = False
     user_id = 1  # Default user ID
     try:
-        # Inform the client we're ready
-        await websocket.send_text("<div class='info'><p>Connection established. Ready to receive files...</p></div>")
+        # Inform the client we're ready - plain text
+        await websocket.send_text("[INFO] Connection established. Ready to receive files...")
         
         # First, handle authentication if needed
         try:
@@ -334,13 +406,16 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
                             # In a real app, you would look up the user ID from the subject
                             # For now, we'll just use a default ID
                             user_id = 1
-                        await websocket.send_text("<div class='info'><p>Authentication successful. Ready to receive PDF file.</p></div>")
+                        # Send plain text status
+                        await websocket.send_text("[INFO] Authentication successful. Ready to receive PDF file.")
                         
                         # Based on the client script.js, we expect binary data next
                         print("Authentication successful, expecting binary data next...")
                         message_type = "binary"
                     else:
+                        # Send plain text error
                         await websocket.send_text("<div class='error'><p>Invalid authentication token</p></div>")
+                        await websocket.send_text("[ERROR] Invalid authentication token")
                         return
                 
                 # Check if this JSON message also contains file data
@@ -349,8 +424,7 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
                     json_content = json_data
                 else:
                     # Token-only message, expect binary data next (based on client.js implementation)
-                    message_type = "binary"
-                    
+                    message_type = "binary" 
             except json.JSONDecodeError:
                 # Not JSON, might be a message type indicator
                 print("Initial message is not JSON, treating as message type")
@@ -366,7 +440,9 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
         
         # Proceed only if authenticated
         if not authenticated:
+            # Send plain text error
             await websocket.send_text("<div class='error'><p>Authentication failed</p></div>")
+            await websocket.send_text("[ERROR] Authentication failed")
             return
         
         # Create temporary directory
@@ -402,8 +478,8 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
                 except Exception as perm_error:
                     print(f"Warning: Could not set file permissions: {str(perm_error)}")
                 
-                # Log the file reception
-                await websocket.send_text(f"<div class='info'><p>Received {len(data)} bytes of binary data</p></div>")
+                # Log the file reception - plain text
+                await websocket.send_text(f"[INFO] Received {len(data)} bytes of binary data")
             except Exception as bin_error:
                 print(f"Error receiving binary data: {str(bin_error)}")
                 raise ValueError(f"Failed to receive binary data: {str(bin_error)}")
@@ -431,8 +507,8 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
                 except Exception as perm_error:
                     print(f"Warning: Could not set file permissions: {str(perm_error)}")
                 
-                # Log the file reception
-                await websocket.send_text(f"<div class='info'><p>Received and decoded {len(data)} bytes from base64 data</p></div>")
+                # Log the file reception - plain text
+                await websocket.send_text(f"[INFO] Received and decoded {len(data)} bytes from base64 data")
             except Exception as b64_error:
                 print(f"Error processing base64 data: {str(b64_error)}")
                 raise ValueError(f"Failed to process base64 data: {str(b64_error)}")
@@ -478,13 +554,14 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
                     except Exception as perm_error:
                         print(f"Warning: Could not set file permissions: {str(perm_error)}")
                     
-                    await websocket.send_text(f"<div class='info'><p>Extracted and decoded {len(data)} bytes from JSON data</p></div>")
+                    # Send plain text status
+                    await websocket.send_text(f"[INFO] Extracted and decoded {len(data)} bytes from JSON data")
                 else:
                     # If we're here and the message type is json_with_file, this is an error
                     if message_type == "json_with_file":
                         raise ValueError("JSON message indicated file data, but none was found")
-                    # For regular JSON, ask for the file separately
-                    await websocket.send_text("<div class='info'><p>Ready to receive file. Please send data type ('binary' or 'base64')...</p></div>")
+                    # For regular JSON, ask for the file separately - plain text
+                    await websocket.send_text("[INFO] Ready to receive file. Please send data type ('binary' or 'base64')...")
                     next_message_type = await websocket.receive_text()
                     
                     # Process the next message as file data
@@ -493,7 +570,8 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
                         file_path = os.path.join(temp_dir, f"uploaded_{int(time.time())}.pdf")
                         with open(file_path, "wb") as temp_file:
                             temp_file.write(data)
-                        await websocket.send_text(f"<div class='info'><p>Received {len(data)} bytes of binary data</p></div>")
+                        # Send plain text status
+                        await websocket.send_text(f"[INFO] Received {len(data)} bytes of binary data")
                     elif next_message_type == "base64":
                         encoded_data = await websocket.receive_text()
                         if "base64," in encoded_data:
@@ -502,7 +580,8 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
                         file_path = os.path.join(temp_dir, f"uploaded_{int(time.time())}.pdf")
                         with open(file_path, "wb") as temp_file:
                             temp_file.write(data)
-                        await websocket.send_text(f"<div class='info'><p>Received and decoded {len(data)} bytes from base64 data</p></div>")
+                        # Send plain text status
+                        await websocket.send_text(f"[INFO] Received and decoded {len(data)} bytes from base64 data")
                     else:
                         raise ValueError(f"Unsupported message type: {next_message_type}. Expected 'binary' or 'base64'")
             except Exception as json_error:
@@ -515,7 +594,8 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
         if not file_path or not os.path.exists(file_path):
             raise FileNotFoundError("No valid file was received or saved")
             
-        await websocket.send_text(f"<div class='info'><p>File saved temporarily as: {os.path.basename(file_path)}</p></div>")
+        # Send plain text status
+        await websocket.send_text(f"[INFO] File saved temporarily as: {os.path.basename(file_path)}")
         
         # Process the PDF with Gemini (using text extraction)
         await process_pdf_with_gemini(file_path, websocket, user_id, db)
@@ -525,7 +605,9 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
     except Exception as e:
         print(f"WebSocket error: {str(e)}")
         try:
+            # Send plain text error
             await websocket.send_text(f"<div class='error'><p>Error: {str(e)}</p></div>")
+            await websocket.send_text(f"[ERROR] Error: {str(e)}")
         except:
             print("Could not send error message to client, likely disconnected")
     finally:
@@ -537,6 +619,34 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
                 print(f"Cleaned up temporary directory: {temp_dir}")
             except Exception as cleanup_error:
                 print(f"Error cleaning up temp directory: {cleanup_error}")
+
+# --- START: New Simple WebSocket Test Endpoint ---
+@router.websocket("/ws/simple_test")
+async def websocket_simple_test(websocket: WebSocket):
+    await websocket.accept()
+    print("Client connected to /ws/simple_test")
+    try:
+        # Send a few messages with delays
+        await websocket.send_text("Message 1 received.\n")
+        await asyncio.sleep(1) # Requires importing asyncio
+        
+        await websocket.send_text("Message 2 after 1 second.\n")
+        await asyncio.sleep(2)
+        
+        await websocket.send_text("Message 3 after 2 more seconds.\n")
+        await asyncio.sleep(1)
+
+        await websocket.send_text("Test complete. Closing connection.\n")
+        
+    except WebSocketDisconnect:
+        print("Client disconnected from /ws/simple_test")
+    except Exception as e:
+        print(f"Error in /ws/simple_test: {e}")
+    finally:
+        print("Closing connection for /ws/simple_test")
+        # Ensure connection is closed properly even on error
+        await websocket.close()
+# --- END: New Simple WebSocket Test Endpoint ---
 
 # post route to solve question paper with reference book if provided
 @router.post("/process")
@@ -760,30 +870,41 @@ async def process_question_paper(
         extraction_time = time.time() - start_time
         
         # Prepare prompt
-        prompt_text = """
-        You are an AI assistant specialized in analyzing and solving content from PDF documents. Your task is to analyze the provided PDF content and generate detailed, well-formatted responses. Please follow these guidelines:
+        prompt_text = f"""
+        You are an expert AI assistant specialized in analyzing PDF content and generating high-quality, well-structured **GitHub Flavored Markdown (GFM)** responses suitable for rendering in web applications.
 
-        1. Identify the type of content in the PDF (academic questions, mathematical expressions, code, general text) and respond appropriately.
-        
-        2. For academic questions: Label your solutions accordingly (e.g., Question 1, Question 2) and provide clear, step-by-step explanations.
-        
-        3. For mathematical expressions: Use proper HTML notation with MathJax compatibility. Render complex equations using the following format:
-           - Inline math: <span class="math-inline">\\(equation\\)</span>
-           - Display math: <div class="math-display">\\[equation\\]</div>
-           
-        4. For code snippets: Present code in properly formatted HTML with syntax highlighting:
-           <pre class="code language-[language]"><code>[code content]</code></pre>
-           
-        5. Format your entire response as HTML. Use proper HTML tags such as <h1>, <h2>, <p>, <ul>, <li>, etc. Do not use Markdown.
-        
-        6. If dealing with multiple parts or sections, address each part separately with clear headings.
-        
-        7. If the content contains diagrams or figures that you cannot reproduce, acknowledge them and describe what they likely represent based on the surrounding context.
+        **Task:** Analyze the provided PDF text and generate a detailed, accurate, and presentation-ready GFM response.
 
-        Begin your response with an appropriate HTML title based on the content type, such as '<h1>Solutions to [Document Title]</h1>' or '<h1>Analysis of [Document Topic]</h1>'.
-        
-        Here is the extracted text from the PDF:
-        
+        **Formatting Guidelines (Strict):**
+
+        1.  **Overall Structure:** Format your entire response using standard GFM. Use headings (`#`, `##`), lists (`*`, `-`, `1.`), bold (`**...**`), italics (`*...*`), etc.
+        2.  **Content Identification:** Identify the type of content (e.g., academic questions, technical documentation, general text) and structure your response accordingly.
+        3.  **Academic Questions:** Label solutions clearly (e.g., using `## Question 1`, `### Part a)`). Provide step-by-step explanations where appropriate.
+        4.  **Mathematical Expressions (LaTeX):** CRITICAL: Use standard LaTeX delimiters ONLY:
+            *   Inline math: Use `$` followed by the LaTeX expression, followed by `$`. Example: `The formula is $E=mc^2$.`
+            *   Display math: Use `$$` followed by the LaTeX expression, followed by `$$`. Example: `$$
+            \\sum_{{i=1}}^n i = \\frac{{n(n+1)}}{{2}}
+            $$`
+        5.  **Code Snippets:** Use standard GFM fenced code blocks:
+            *   Start the block with three backticks followed by the language name (e.g., ```c, ```python).
+            *   Place ALL code lines within the fences.
+            *   End the block with three backticks on a new line.
+            *   Example:
+                ```python
+                def hello():
+                    print("Hello")
+                ```
+        6.  **Headings and Sections:** Use headings (`#`, `##`, etc.) logically to structure the content. Address distinct parts or questions separately.
+        7.  **Diagrams/Figures:** If the PDF contains visual elements you cannot reproduce, explicitly state this (e.g., `*Note: The original document included a diagram here illustrating...*`) and describe its likely content based on context.
+        8.  **Clarity:** Ensure explanations are clear, concise, and easy to follow.
+        9.  **Error Handling:** If parts of the input text are garbled or incomprehensible, indicate this clearly, perhaps using italics: `*Unclear or garbled text segment*`.
+
+        **Output:** Start your response directly with the main content, usually beginning with a `#` title appropriate for the document (e.g., `# Solutions for [Document Title]`). Do NOT output raw HTML tags.
+
+        **Input PDF Text:**
+        --- BEGIN PDF TEXT ---
+        {extracted_text}
+        --- END PDF TEXT ---
         """
         
         # Add reference book text to the prompt if available
