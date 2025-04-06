@@ -35,7 +35,7 @@ const AuthContext = createContext<AuthContextType>({
 function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [userCredits, setUserCredits] = useState(0);
+  const [userCredits, setUserCredits] = useState(100);
   const rootNavigation = useRootNavigation();
   const segments = useSegments();
 
@@ -50,7 +50,8 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       router.replace('/(tabs)');
     } else if (!isLoggedIn && !inAuthGroup) {
       // If the user is not logged in and not in the auth group, redirect to the login screen
-      router.replace('/login');
+      // Commenting out this line for development to directly land on index screen
+      // router.replace('/login');
     }
   }, [isLoggedIn, segments, rootNavigation]);
 

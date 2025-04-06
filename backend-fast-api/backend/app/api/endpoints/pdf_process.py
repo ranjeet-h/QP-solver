@@ -267,7 +267,10 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
         token_count = 0
         generation_start = time.time()
         
-        await websocket.send_text("\n<div class='solution-container'>")
+        # Comment out the line sending the raw HTML div
+        # await websocket.send_text("\n<div class='solution-container'>")
+        await websocket.send_text("\n\n **Question Paper** \n\n")
+        
         full_prompt = prompt_text + "\n\n" + extracted_text
         
         await websocket.send_text("[INFO] Sending extracted PDF text to Gemini API...")

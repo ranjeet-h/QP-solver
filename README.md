@@ -149,6 +149,13 @@ java -jar bundletool-all-1.18.0.jar build-apks --bundle=build-1741189266818.aab 
 unzip app.apks -d apks            
 ```
 
+<!-- Run backend -->
+
+```bash
+cd backend-fast-api
+    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
 
 
 

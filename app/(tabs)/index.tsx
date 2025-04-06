@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform, SafeAreaView, ActivityIndicator, Share as RNShare } from 'react-native';
 import { 
   Box, 
@@ -35,20 +35,30 @@ import { solverService, SolverResponse } from '../../services/solver.service';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
+import { BlurView } from 'expo-blur';
 
 export default function HomeScreen() {
-  const [referenceBookFile, setReferenceBookFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  // Re-add and comment out referenceBookFile state
+  // const [referenceBookFile, setReferenceBookFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [questionFile, setQuestionFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
-  const [answer, setAnswer] = useState<SolverResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [streamedAnswerContent, setStreamedAnswerContent] = useState<string>('');
+  const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState('');
-  const [creditsCost, setCreditsCost] = useState<number | null>(null);
+  const [statusMessage, setStatusMessage] = useState('');
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
   
-  // Use credits from auth context
   const { userCredits, setUserCredits } = useAuth();
 
+  useEffect(() => {
+    return () => {
+      wsRef.current?.close();
+    };
+  }, []);
+
+  // Re-add and comment out pickReferenceBook function
+  /*
   const pickReferenceBook = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -57,13 +67,14 @@ export default function HomeScreen() {
       });
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setReferenceBookFile(result.assets[0]);
+        setReferenceBookFile(result.assets[0]); // This would need to be uncommented if the state is uncommented
         setError('');
       }
     } catch (err) {
       console.error('Error picking reference book:', err);
     }
   };
+  */
 
   const pickQuestionPaper = async () => {
     try {
@@ -81,47 +92,103 @@ export default function HomeScreen() {
     }
   };
 
-  const handleSolveQuestion = async () => {
+  // Helper function to map backend logs to user-friendly messages
+  const mapBackendStatusToUI = (backendStatus: string): string | null => {
+    if (backendStatus.startsWith('[INFO] Connection established')) return 'Connected...';
+    if (backendStatus.startsWith('[INFO] Authentication successful')) return 'Authenticated...';
+    if (backendStatus.startsWith('[INFO] Received') && backendStatus.includes('bytes')) return 'Receiving file data...'; // Covers binary and base64
+    if (backendStatus.startsWith('[INFO] File saved temporarily')) return 'File received, preparing...';
+    if (backendStatus.startsWith('[INFO] Initializing PDF processing')) return 'Initializing PDF processing...';
+    if (backendStatus.startsWith('[INFO] Starting text extraction')) return 'Extracting text from PDF...';
+    if (backendStatus.startsWith('[INFO] Extraction complete')) return 'Text extracted, preparing solution...';
+    if (backendStatus.startsWith('[INFO] Sending extracted PDF text to Gemini')) return 'Sending data to AI...';
+    if (backendStatus.startsWith('[DEBUG] Attempting to initiate Gemini stream')) return 'Requesting solution from AI...';
+    if (backendStatus.startsWith('[DEBUG] Gemini stream initiated')) return 'Receiving solution...'; // Indicates first part of solution is coming
+    if (backendStatus.startsWith('[ERROR]')) {
+      // Extract a cleaner error message if possible
+      const match = backendStatus.match(/Error: (.*)/);
+      return match ? `Error: ${match[1]}` : 'An error occurred';
+    }
+    // Return null if it's not a status we want to display explicitly
+    return null; 
+  };
+
+  const handleSolveQuestionStream = async () => {
+    // Comment out reference book check
+    /*
     if (!referenceBookFile) {
       setError('Please upload a reference book');
       return;
     }
+    */
 
     if (!questionFile) {
       setError('Please upload a question paper');
       return;
     }
 
-    if (userCredits < 5) {
-      setError('Not enough credits. Please purchase more credits in Settings.');
+    const requiredCredits = 5;
+    if (userCredits < requiredCredits) {
+      setError(`Not enough credits (need ${requiredCredits}). Please purchase more credits in Settings.`);
       return;
     }
 
-    setIsLoading(true);
-    setError('');
-    setAnswer(null);
+    wsRef.current?.close();
 
+    setIsStreaming(true);
+    setError('');
+    setStreamedAnswerContent('');
+    setStatusMessage('Connecting to solver...');
+
+    setUserCredits(userCredits - requiredCredits);
+    
     try {
-      const response = await solverService.solveQuestion(questionFile, referenceBookFile);
-      setAnswer(response);
-      
-      if (typeof response.remainingCredits === 'number') {
-        setUserCredits(response.remainingCredits);
-      }
+      wsRef.current = solverService.solveQuestionStream(
+        questionFile,
+        (chunk) => {
+          console.log('Received Markdown Chunk:', JSON.stringify(chunk));
+          setStreamedAnswerContent(prev => prev === '' ? '\n\n\n' + chunk : prev + chunk);
+        },
+        (backendStatus) => {
+          const uiStatus = mapBackendStatusToUI(backendStatus);
+          if (uiStatus) {
+            setStatusMessage(uiStatus);
+          }
+          if (backendStatus.startsWith('[ERROR]')) {
+             setError(uiStatus || 'An error occurred during processing.');
+             setIsStreaming(false); 
+          }
+        },
+        (errorEvent) => {
+          console.error("WebSocket Error Event:", errorEvent);
+          const message = (errorEvent as any)?.message || 'Connection error';
+          setError(`WebSocket connection failed: ${message}`);
+          setStatusMessage('Connection failed.');
+          setIsStreaming(false);
+          wsRef.current = null;
+        },
+        (closeEvent: CloseEvent) => {
+          console.log("WebSocket Closed Event:", closeEvent.code, closeEvent.reason);
+          setIsStreaming(false); 
+          setStatusMessage(closeEvent.wasClean ? 'Processing complete.' : 'Connection closed.');
+          wsRef.current = null;
+        }
+      );
     } catch (error) {
-      setError('An error occurred. Please try again.');
-    } finally {
-      setIsLoading(false);
+      console.error("Error initiating WebSocket connection:", error);
+      setError('Failed to connect to the solver service. Please try again.');
+      setUserCredits(userCredits + requiredCredits);
+      setIsStreaming(false);
+      wsRef.current = null;
     }
   };
 
   const handleExport = async (format: 'pdf' | 'docx') => {
-    if (!answer?.answer) return;
+    if (!streamedAnswerContent) return;
     
     setExportLoading(true);
     try {
       if (format === 'pdf') {
-        // Convert markdown to HTML for PDF
         const htmlContent = `
           <!DOCTYPE html>
           <html>
@@ -129,75 +196,42 @@ export default function HomeScreen() {
               <meta charset="utf-8">
               <title>Solution</title>
               <style>
-                body { 
-                  font-family: Arial, sans-serif; 
-                  line-height: 1.6; 
-                  padding: 20px;
-                  color: #333;
-                  max-width: 800px;
-                  margin: 0 auto;
-                }
-                h1 { color: #2C5282; margin-bottom: 20px; }
-                h2 { color: #2B6CB0; margin-top: 30px; }
-                code { 
-                  background: #f4f4f4; 
-                  padding: 2px 5px; 
-                  border-radius: 3px;
-                  font-family: monospace;
-                }
-                pre { 
-                  background: #f4f4f4; 
-                  padding: 15px; 
-                  border-radius: 5px;
-                  overflow-x: auto;
-                  white-space: pre-wrap;
-                }
-                ul, ol { margin: 10px 0; padding-left: 20px; }
-                li { margin: 5px 0; }
-                @media print {
-                  body { 
-                    padding: 0;
-                    font-size: 12pt;
-                  }
-                  pre, code {
-                    font-size: 10pt;
-                  }
-                }
+                body { font-family: sans-serif; line-height: 1.6; padding: 20px; }
+                pre { background: #f4f4f4; padding: 10px; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; }
+                code { font-family: monospace; background: #f4f4f4; padding: 2px 4px; border-radius: 3px; }
+                h1 { font-size: 2em; margin-bottom: 0.5em; }
+                h2 { font-size: 1.5em; margin-bottom: 0.5em; }
+                h3 { font-size: 1.17em; margin-bottom: 0.5em; }
+                ul, ol { margin: 1em 0; padding-left: 2em; }
+                li { margin-bottom: 0.5em; }
+                blockquote { border-left: 4px solid #ccc; padding-left: 1em; margin-left: 0; color: #666; }
+                table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
               </style>
             </head>
             <body>
-              ${answer.answer}
+              ${streamedAnswerContent} 
             </body>
           </html>
         `;
+        
+        const { uri } = await Print.printToFileAsync({ html: htmlContent, base64: false });
 
-        // Generate PDF using expo-print
-        const { uri } = await Print.printToFileAsync({
-          html: htmlContent,
-          base64: false
-        });
-
-        // Share the PDF
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri, {
-            mimeType: 'application/pdf',
-            dialogTitle: 'Export Solution as PDF',
-            UTI: 'com.adobe.pdf'
-          });
+          await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Export Solution as PDF', UTI: 'com.adobe.pdf' });
         }
       } else {
-        // For DOCX, save as markdown
         const fileUri = `${FileSystem.cacheDirectory}solution.md`;
-        await FileSystem.writeAsStringAsync(fileUri, answer.answer, {
+        await FileSystem.writeAsStringAsync(fileUri, streamedAnswerContent, {
           encoding: FileSystem.EncodingType.UTF8,
         });
 
-        // Share the markdown file
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(fileUri, {
+          await Sharing.shareAsync(fileUri, { 
             mimeType: 'text/markdown',
-            dialogTitle: 'Export Solution as DOCX',
-            UTI: 'public.plain-text'
+            dialogTitle: 'Export Solution as Markdown',
+            UTI: 'public.plain-text' 
           });
         }
       }
@@ -211,10 +245,14 @@ export default function HomeScreen() {
   };
 
   const clearForm = () => {
-    setReferenceBookFile(null);
+    wsRef.current?.close(); // Close WebSocket connection
+    wsRef.current = null;
+    // setReferenceBookFile(null); // Commented out
     setQuestionFile(null);
-    setAnswer(null);
+    setStreamedAnswerContent(''); // Clear streamed content
     setError('');
+    setStatusMessage('');
+    setIsStreaming(false);
   };
 
   return (
@@ -227,7 +265,8 @@ export default function HomeScreen() {
           <Box style={styles.header}>
             <VStack style={styles.headerContent}>
               <Heading style={styles.title} className='text-2xl font-bold'>Question Solver</Heading>
-              <Text style={styles.subtitle}>Upload your reference book and question paper for detailed solutions</Text>
+              {/* <Text style={styles.subtitle}>Upload your reference book and question paper for detailed solutions</Text> */}
+              <Text style={styles.subtitle}>Upload your question paper for detailed solutions</Text>
             </VStack>
             
             <HStack style={styles.creditsContainer}>
@@ -244,7 +283,9 @@ export default function HomeScreen() {
           </Box>
           
           <Box style={styles.formContainer}>
-            <FormControl isRequired isInvalid={!referenceBookFile && !!error}>
+            {/* Comment out Reference Book FormControl */}
+            {/* 
+            <FormControl isRequired isInvalid={!referenceBookFile && !!error}> 
               <FormControlLabel>
                 <FormControlLabelText>Reference Book</FormControlLabelText>
               </FormControlLabel>
@@ -274,8 +315,10 @@ export default function HomeScreen() {
                 </FormControlHelperText>
               </FormControlHelper>
             </FormControl>
+            */}
             
-            <FormControl isRequired isInvalid={!questionFile && !!error} style={styles.questionContainer}>
+            {/* Ensure question container doesn't have the top margin style if the reference box is commented */}
+            <FormControl isRequired isInvalid={!questionFile && !!error} /* style={styles.questionContainer} - remove style or comment out */>
               <FormControlLabel>
                 <FormControlLabelText>Question Paper</FormControlLabelText>
               </FormControlLabel>
@@ -313,38 +356,44 @@ export default function HomeScreen() {
                 style={styles.clearButton}
                 variant="outline"
                 onPress={clearForm}
-                isDisabled={isLoading || (!referenceBookFile && !questionFile)}
+                // Update isDisabled logic - keep current, comment old
+                // isDisabled={isStreaming || (!referenceBookFile && !questionFile && !streamedAnswerContent)}
+                isDisabled={isStreaming || (!questionFile && !streamedAnswerContent)} 
               >
                 <ButtonText>Clear</ButtonText>
               </Button>
               
               <Button
                 style={styles.solveButton}
-                onPress={handleSolveQuestion}
-                isDisabled={isLoading || !referenceBookFile || !questionFile || userCredits < 5}
+                onPress={handleSolveQuestionStream} // Use new handler
+                // Update isDisabled logic - keep current, comment old
+                // isDisabled={isStreaming || !referenceBookFile || !questionFile || userCredits < 5} 
+                isDisabled={isStreaming || !questionFile || userCredits < 5} 
               >
-                {isLoading ? <Spinner /> : <ButtonText>Solve Question</ButtonText>}
+                {isStreaming ? <Spinner /> : <ButtonText>Solve Question</ButtonText>}
               </Button>
             </HStack>
+
+            {/* Loading Overlay - Placed inside formContainer */} 
+            {isStreaming && (
+              <BlurView intensity={50} tint="light" style={styles.loadingOverlay}>
+                <Spinner size="large" color="#333" />
+                <Text style={[styles.loadingText, { marginTop: 16 }]}>{statusMessage || 'Processing...'}</Text>
+              </BlurView>
+            )}
           </Box>
           
-          {isLoading && (
-            <Center style={styles.loadingContainer}>
-              <Spinner size="large" />
-              <Text style={styles.loadingText}>Analyzing documents and generating solution...</Text>
-            </Center>
-          )}
-          
-          {answer && (
+          {streamedAnswerContent ? (
             <Box style={styles.answerContainer}>
               <HStack style={styles.answerHeader}>
                 <Heading size="md">Solution</Heading>
                 <HStack space="sm">
-                  <Text style={styles.costText}>-{answer.creditsUsed} credits</Text>
+                  <Text style={styles.costText}>-5 credits</Text>
                   <Button
                     size="sm"
                     variant="outline"
                     onPress={() => setShowExportDialog(true)}
+                    isDisabled={isStreaming}
                   >
                     <HStack style={{ alignItems: 'center' }} space="sm">
                       <Feather name="download" size={16} color="#000" />
@@ -355,10 +404,10 @@ export default function HomeScreen() {
               </HStack>
               <Divider style={styles.divider} />
               <Box style={styles.markdownContainer}>
-                <Markdown>{answer.answer}</Markdown>
+                <Markdown style={markdownStyles}>{streamedAnswerContent}</Markdown>
               </Box>
             </Box>
-          )}
+          ) : null}
         </ScrollView>
 
         <AlertDialog
@@ -378,7 +427,7 @@ export default function HomeScreen() {
               <Button
                 variant="outline"
                 onPress={() => handleExport('pdf')}
-                isDisabled={exportLoading}
+                isDisabled={exportLoading || isStreaming}
                 style={styles.exportButton}
               >
                 {exportLoading ? <Spinner /> : <ButtonText>PDF</ButtonText>}
@@ -387,10 +436,10 @@ export default function HomeScreen() {
               <Button
                 variant="solid"
                 onPress={() => handleExport('docx')}
-                isDisabled={exportLoading}
+                isDisabled={exportLoading || isStreaming}
                 style={styles.exportButton}
               >
-                {exportLoading ? <Spinner /> : <ButtonText>DOCX</ButtonText>}
+                {exportLoading ? <Spinner /> : <ButtonText>Markdown</ButtonText>}
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -465,6 +514,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
     marginBottom: 20,
+    position: 'relative', // Needed for absolute positioning of overlay
+    overflow: 'hidden', // Clip the blur overlay to the container bounds
   },
   fileUploadContainer: {
     borderWidth: 1,
@@ -505,9 +556,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     opacity: 0.6,
   },
-  questionContainer: {
-    marginTop: 16,
-  },
   errorBorder: {
     borderColor: 'red',
   },
@@ -527,21 +575,20 @@ const styles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 4,
   },
-  loadingContainer: {
-    padding: 32,
-    backgroundColor: 'white',
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    marginBottom: 20,
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject, // Cover the parent (formContainer)
+    backgroundColor: 'rgba(255, 255, 255, 0.7)', // Semi-transparent white fallback
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10, // Ensure it's above other form elements
   },
   loadingText: {
-    marginTop: 16,
-    opacity: 0.7,
+    // Removed marginTop here, will add it inline if needed
+    opacity: 0.9, // Make text slightly more visible on blur
     textAlign: 'center',
+    fontSize: 16, // Slightly larger status text
+    fontWeight: '500',
+    color: '#333',
   },
   markdownContainer: {
     paddingVertical: 16,
@@ -555,6 +602,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
+    marginTop: 20,
   },
   answerHeader: {
     justifyContent: 'space-between',
@@ -570,12 +618,12 @@ const styles = StyleSheet.create({
     marginVertical: 8,
   },
   dialogBackdrop: {
-    backgroundColor: 'rgba(0, 0, 0, 0.6)', // Darker semi-transparent black
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   dialogContent: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 0, // Remove padding as it will be handled by child components
+    padding: 0,
     width: '90%',
     maxWidth: 400,
     alignSelf: 'center',
@@ -608,4 +656,64 @@ const styles = StyleSheet.create({
   exportButton: {
     minWidth: 100,
   }
+});
+
+// Basic styles for react-native-markdown-display
+const markdownStyles = StyleSheet.create({
+  heading1: {
+    fontSize: 28,
+    fontWeight: 'bold', 
+    marginTop: 15,
+    marginBottom: 10,
+    color: '#000000',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingBottom: 5,
+  },
+  heading2: {
+    fontSize: 22,
+    fontWeight: 'bold', 
+    marginTop: 12,
+    marginBottom: 6,
+    color: '#000000',
+  },
+  heading3: {
+    fontSize: 18, 
+    fontWeight: 'bold',
+    marginTop: 10,
+    marginBottom: 4,
+    color: '#000000',
+  },
+  body: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#000000',
+  },
+  strong: {
+    fontWeight: 'bold',
+    color: '#000000',
+  },
+  em: {
+    fontStyle: 'italic',
+    color: '#000000',
+  },
+  list_item: {
+    marginVertical: 5,
+  },
+  code_block: {
+    backgroundColor: '#f0f0f0',
+    padding: 12,
+    borderRadius: 4,
+    marginVertical: 8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#000000',
+  },
+  code_inline: {
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 3,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#000000',
+  },
 });
