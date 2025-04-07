@@ -1,25 +1,65 @@
-from pydantic import BaseModel, EmailStr, Field
+import phonenumbers
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from datetime import datetime
 from typing import Optional, List
 
 # User schemas
+# Base schema: shared fields
 class UserBase(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
+    phone_number: Optional[str] = None
+    first_name: Optional[str] = None  # Optional here, required in UserCreate
+    last_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    ip_address: Optional[str] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_fields(cls, values):
+        email = values.get("email")
+        phone = values.get("phone_number")
+        if email:
+            values["email"] = email.strip().lower()  # Removes extra space and lowercases it
+        if phone:
+            values["phone_number"] = phone.strip()   # Removes spaces
+        return values
+
+    @model_validator(mode="after")
+    def check_email_or_phone(cls, values):
+        email, phone = values.get("email"), values.get("phone_number")
+        if not email and not phone:
+            raise ValueError("Either email or phone number must be provided")
+        return values
+
+# User creation (signup)
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
+    first_name: str  # Required here
 
+# User login (email or phone + password)
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
+    phone_number: Optional[str] = None
     password: str
 
+    @model_validator(mode="after")
+    def check_login_identifier(cls, values):
+        email, phone = values.get("email"), values.get("phone_number")
+        if not email and not phone:
+            raise ValueError("Either email or phone number must be provided to login")
+        return values
+
+# Response schema (used in API responses)
 class UserResponse(UserBase):
     id: int
-    created_at: datetime
     is_active: bool
+    is_superuser: bool
+    created_at: datetime
+    first_name: str  # Required in response too
 
     class Config:
-        from_attributes = True  # For Pydantic v2 compatibility with SQLAlchemy
+        from_attributes = True  # For Pydantic v2 + SQLAlchemy compatibility
 
 # Token schemas
 class Token(BaseModel):
