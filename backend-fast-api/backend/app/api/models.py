@@ -5,7 +5,8 @@ from sqlalchemy import (Column,
                         DateTime, 
                         ForeignKey, 
                         Text,
-                        Enum)
+                        Enum,
+                        Float)
 from sqlalchemy.sql import func
 from app.db.database import Base
 import uuid
@@ -22,6 +23,12 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)  # Single password field
+    first_name = Column(String(255), nullable=False)
+    last_name = Column(String(255), nullable=True)
+    phone_number = Column(String(255), nullable=True)
+    latitude  = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    ip_address = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=func.now())
