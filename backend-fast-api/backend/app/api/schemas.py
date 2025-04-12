@@ -43,12 +43,12 @@ class UserLogin(BaseModel):
     password: str
 
     @model_validator(mode="after")
-    def check_login_identifier(cls, values):
+    def check_login_identifier(self):
         # Access attributes directly for mode="after" validator
-        email, phone = values.email, values.phone_number
+        email, phone = self.email, self.phone_number
         if not email and not phone:
             raise ValueError("Either email or phone number must be provided to login")
-        return values
+        return self  # Must return the model instance
 
 # Response schema (used in API responses)
 class UserResponse(UserBase):
