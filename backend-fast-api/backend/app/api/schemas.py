@@ -14,23 +14,22 @@ class UserBase(BaseModel):
     longitude: Optional[float] = None
     ip_address: Optional[str] = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_fields(cls, values):
-        email = values.get("email")
-        phone = values.get("phone_number")
-        if email:
-            values["email"] = email.strip().lower()  # Removes extra space and lowercases it
-        if phone:
-            values["phone_number"] = phone.strip()   # Removes spaces
-        return values
+    @model_validator(mode="after")
+    def normalize_fields(self):
+        # Access and modify attributes directly on self
+        if self.email:
+            self.email = self.email.strip().lower()
+        if self.phone_number:
+            self.phone_number = self.phone_number.strip()
+        return self # Must return the model instance
 
     @model_validator(mode="after")
-    def check_email_or_phone(cls, values):
-        email, phone = values.get("email"), values.get("phone_number")
+    def check_email_or_phone(self):
+        # Access attributes directly on self
+        email, phone = self.email, self.phone_number
         if not email and not phone:
             raise ValueError("Either email or phone number must be provided")
-        return values
+        return self # Must return the model instance
 
 # User creation (signup)
 class UserCreate(UserBase):
@@ -45,7 +44,8 @@ class UserLogin(BaseModel):
 
     @model_validator(mode="after")
     def check_login_identifier(cls, values):
-        email, phone = values.get("email"), values.get("phone_number")
+        # Access attributes directly for mode="after" validator
+        email, phone = values.email, values.phone_number
         if not email and not phone:
             raise ValueError("Either email or phone number must be provided to login")
         return values
