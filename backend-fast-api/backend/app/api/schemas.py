@@ -46,10 +46,18 @@ class UserBase(BaseModel):
             raise ValueError("Failed to identify valid email or phone number from input")
         return self
 
+    class Config:
+        extra = "forbid"
+        schema_extra = {"hide_docs": True}
+
 # User creation (signup)
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
     first_name: str  # Required here
+
+    class Config:
+        extra = "forbid"
+        schema_extra = {"hide_docs": True}
 
 # User login (email or phone + password)
 class UserLogin(BaseModel):
@@ -80,6 +88,10 @@ class UserLogin(BaseModel):
         if not email and not phone:
             raise ValueError("Failed to identify valid email or phone number from input")
         return self
+
+    class Config:
+        extra = "forbid"
+        schema_extra = {"hide_docs": True}
 
 # User Update schema
 class UserUpdate(BaseModel):
@@ -133,26 +145,47 @@ class UserUpdate(BaseModel):
 
         return self
 
+    class Config:
+        extra = "forbid"
+        schema_extra = {"hide_docs": True}
+
 # Response schema (used in API responses)
-class UserResponse(UserBase):
+class UserResponse(BaseModel):
     id: int
+    email: Optional[EmailStr]
+    phone_number: Optional[str]
+    first_name: str
+    last_name: Optional[str]
+    latitude: Optional[float]
+    longitude: Optional[float]
+    ip_address: Optional[str]
     is_active: bool
     is_superuser: bool
     created_at: datetime
-    first_name: str  # Required in response too
+    email_phone: Optional[str] = None
 
     class Config:
-        from_attributes = True  # For Pydantic v2 + SQLAlchemy compatibility
+        from_attributes = True
+        extra = "forbid"
+        schema_extra = {"hide_docs": True}
 
 # Token schemas
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
+    class Config:
+        extra = "forbid"
+        schema_extra = {"hide_docs": True}
+
 class TokenPayload(BaseModel):
     """JWT token payload containing user ID"""
     sub: Optional[str] = Field(None, description="User ID stored in the token")
     exp: Optional[int] = Field(None, description="Token expiration timestamp")
+
+    class Config:
+        extra = "forbid"
+        schema_extra = {"hide_docs": True}
 
 # PDF Processing schemas
 class PDFResponse(BaseModel):

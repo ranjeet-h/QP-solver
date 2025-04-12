@@ -9,7 +9,9 @@ from app.api.dependencies import get_current_active_user
 
 router = APIRouter()
 
-@router.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", 
+    response_model=schemas.UserResponse, 
+    status_code=status.HTTP_201_CREATED)
 async def create_user(
     user_data: schemas.UserCreate,
     db: Session = Depends(get_db),
@@ -91,7 +93,8 @@ async def create_user(
             detail="Registration failed"
         )
 
-@router.post("/login", response_model=schemas.Token)
+@router.post("/login", 
+    response_model=schemas.Token)
 async def user_login(login_data: schemas.UserLogin, db: Session = Depends(get_db)):
     """
     Authenticate user and return JWT token.
@@ -145,7 +148,8 @@ async def user_login(login_data: schemas.UserLogin, db: Session = Depends(get_db
             detail="Internal server error during login"
         )
 
-@router.post("/change-password", status_code=status.HTTP_200_OK)
+@router.post("/change-password", 
+    status_code=status.HTTP_200_OK)
 async def change_password(
     password_data: schemas.PasswordChange,
     current_user: models.User = Depends(get_current_active_user),
@@ -194,7 +198,8 @@ async def change_password(
             detail="Failed to change password"
         )
 
-@router.put("/edit-profile", response_model=schemas.UserResponse)
+@router.put("/edit-profile", 
+    response_model=schemas.UserResponse)
 async def edit_user_details(
     user_data: schemas.UserUpdate,
     current_user: models.User = Depends(get_current_active_user),
