@@ -51,7 +51,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     } else if (!isLoggedIn && !inAuthGroup) {
       // If the user is not logged in and not in the auth group, redirect to the login screen
       // Commenting out this line for development to directly land on index screen
-      // router.replace('/login');
+      router.replace('/login');
     }
   }, [isLoggedIn, segments, rootNavigation]);
 

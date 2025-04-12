@@ -9,11 +9,6 @@ import {
   Text, 
   VStack,
   HStack,
-  FormControl,
-  FormControlLabel,
-  FormControlLabelText,
-  FormControlHelper,
-  FormControlHelperText,
   Image,
   Spinner,
   Divider,
@@ -24,10 +19,12 @@ import {
   AlertDialogHeader,
   AlertDialogCloseButton,
   AlertDialogBody,
-  AlertDialogFooter
+  AlertDialogFooter,
+  Icon,
+  CloseIcon,
+  ButtonSpinner
 } from '../../components/ui';
 import { useAuth } from '../_layout';
-import { AntDesign, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import Constants from 'expo-constants';
 import Markdown from 'react-native-markdown-display';
@@ -35,17 +32,16 @@ import { solverService, SolverResponse } from '../../services/solver.service';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
-import { BlurView } from 'expo-blur';
+import { Feather, Ionicons } from '@expo/vector-icons';
 
 export default function HomeScreen() {
-  // Re-add and comment out referenceBookFile state
-  // const [referenceBookFile, setReferenceBookFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
-  const [questionFile, setQuestionFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  // Re-add referenceBookFile state
+  const [referenceBookFile, setReferenceBookFile] = useState<DocumentPicker.DocumentPickerAsset | any>(null);
+  const [questionFile, setQuestionFile] = useState<DocumentPicker.DocumentPickerAsset | any>(null);
   const [streamedAnswerContent, setStreamedAnswerContent] = useState<string>('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
-  const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   
@@ -57,29 +53,29 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // Re-add and comment out pickReferenceBook function
-  /*
+  // Update pickReferenceBook to only accept PDF
   const pickReferenceBook = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'image/*', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+        type: ['application/pdf'], // Only allow PDF
         copyToCacheDirectory: true
       });
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setReferenceBookFile(result.assets[0]); // This would need to be uncommented if the state is uncommented
+        setReferenceBookFile(result.assets[0]); 
         setError('');
       }
     } catch (err) {
       console.error('Error picking reference book:', err);
+      setError('Could not pick reference book.');
     }
   };
-  */
 
+  // Update pickQuestionPaper to only accept PDF
   const pickQuestionPaper = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'image/*', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+        type: ['application/pdf'], // Only allow PDF
         copyToCacheDirectory: true
       });
       
@@ -89,101 +85,157 @@ export default function HomeScreen() {
       }
     } catch (err) {
       console.error('Error picking question paper:', err);
+      setError('Could not pick question paper.');
     }
   };
 
   // Helper function to map backend logs to user-friendly messages
   const mapBackendStatusToUI = (backendStatus: string): string | null => {
+    // Use startsWith for more robust matching
     if (backendStatus.startsWith('[INFO] Connection established')) return 'Connected...';
     if (backendStatus.startsWith('[INFO] Authentication successful')) return 'Authenticated...';
-    if (backendStatus.startsWith('[INFO] Received') && backendStatus.includes('bytes')) return 'Receiving file data...'; // Covers binary and base64
+    if (backendStatus.startsWith('[INFO] Received') && backendStatus.includes('bytes')) return 'Receiving file data...';
     if (backendStatus.startsWith('[INFO] File saved temporarily')) return 'File received, preparing...';
     if (backendStatus.startsWith('[INFO] Initializing PDF processing')) return 'Initializing PDF processing...';
     if (backendStatus.startsWith('[INFO] Starting text extraction')) return 'Extracting text from PDF...';
     if (backendStatus.startsWith('[INFO] Extraction complete')) return 'Text extracted, preparing solution...';
+    if (backendStatus.startsWith('[INFO] Extraction took')) return 'Processing text...';
+    if (backendStatus.startsWith('[INFO] Generating solutions')) return 'Generating solution...';
     if (backendStatus.startsWith('[INFO] Sending extracted PDF text to Gemini')) return 'Sending data to AI...';
     if (backendStatus.startsWith('[DEBUG] Attempting to initiate Gemini stream')) return 'Requesting solution from AI...';
-    if (backendStatus.startsWith('[DEBUG] Gemini stream initiated')) return 'Receiving solution...'; // Indicates first part of solution is coming
+    if (backendStatus.startsWith('[DEBUG] Gemini stream initiated')) return 'Receiving solution...';
+    if (backendStatus.startsWith('[DEBUG] Received first chunk')) return 'Receiving first part of solution...';
+    if (backendStatus.startsWith('[DEBUG] Finished iterating')) return 'Solution received...';
+    if (backendStatus.startsWith('[INFO] Processing complete')) return 'Processing complete.';
     if (backendStatus.startsWith('[ERROR]')) {
-      // Extract a cleaner error message if possible
       const match = backendStatus.match(/Error: (.*)/);
       return match ? `Error: ${match[1]}` : 'An error occurred';
     }
-    // Return null if it's not a status we want to display explicitly
-    return null; 
+    // Return null for unmapped messages
+    return null;
   };
 
   const handleSolveQuestionStream = async () => {
-    // Comment out reference book check
-    /*
-    if (!referenceBookFile) {
-      setError('Please upload a reference book');
-      return;
-    }
-    */
-
+    // Check required question file first
     if (!questionFile) {
-      setError('Please upload a question paper');
+      setError('Please upload a question paper (required)');
       return;
     }
 
-    const requiredCredits = 5;
+    const requiredCredits = 5; // Assuming reference book doesn't change cost for now
     if (userCredits < requiredCredits) {
       setError(`Not enough credits (need ${requiredCredits}). Please purchase more credits in Settings.`);
       return;
     }
 
-    wsRef.current?.close();
+    // Close any existing WebSocket connection first
+    if (wsRef.current) {
+      console.log("Closing existing WebSocket connection");
+      wsRef.current.close();
+      wsRef.current = null;
+    }
 
+    // Reset all state at the start of a new solution attempt
     setIsStreaming(true);
     setError('');
     setStreamedAnswerContent('');
     setStatusMessage('Connecting to solver...');
+    console.log("States reset for new solution");
 
-    setUserCredits(userCredits - requiredCredits);
+    // Deduct credits immediately (optimistic update)
+    setUserCredits(userCredits - requiredCredits); 
     
     try {
+      // Setup new WebSocket connection
+      console.log("Creating new WebSocket connection");
       wsRef.current = solverService.solveQuestionStream(
         questionFile,
-        (chunk) => {
-          console.log('Received Markdown Chunk:', JSON.stringify(chunk));
-          setStreamedAnswerContent(prev => prev === '' ? '\n\n\n' + chunk : prev + chunk);
+        (chunk) => { // chunk callback
+          // Log a snippet of the received chunk for debugging
+          const snippetLength = Math.min(30, chunk.length);
+          const snippetText = chunk.substring(0, snippetLength) + (chunk.length > snippetLength ? '...' : '');
+          console.log(`Processing content chunk (${chunk.length} chars): ${snippetText}`);
+          
+          // Update the UI with the new content
+          setStreamedAnswerContent(prev => {
+            // Only add the initial newlines if this is the first chunk
+            const newContent = prev === '' ? '\n\n\n' + chunk : prev + chunk;
+            console.log(`Updated streamedAnswerContent length: ${newContent.length} chars`);
+            return newContent;
+          });
         },
-        (backendStatus) => {
-          const uiStatus = mapBackendStatusToUI(backendStatus);
-          if (uiStatus) {
-            setStatusMessage(uiStatus);
+        (statusOrEvent: any) => { // backendStatus callback
+          let backendStatus: string | null = null;
+          // Check if it's a string or an Event object
+          if (typeof statusOrEvent === 'string') {
+            backendStatus = statusOrEvent;
+          } else if (statusOrEvent && typeof statusOrEvent === 'object' && 'data' in statusOrEvent) {
+             // Assuming status message might be in event.data for non-string messages
+             if (typeof statusOrEvent.data === 'string') {
+               backendStatus = statusOrEvent.data;
+             }
           }
-          if (backendStatus.startsWith('[ERROR]')) {
-             setError(uiStatus || 'An error occurred during processing.');
-             setIsStreaming(false); 
+          
+          if (backendStatus) {
+            const uiStatus = mapBackendStatusToUI(backendStatus);
+            if (uiStatus) {
+              setStatusMessage(uiStatus);
+            }
+            if (backendStatus.startsWith('[ERROR]')) {
+              setError(uiStatus || 'An error occurred during processing.');
+              setIsStreaming(false); 
+              setUserCredits(userCredits); // Revert credits
+            }
+          } else {
+            // Handle unexpected status type if necessary
+            console.warn("Received unexpected status type:", statusOrEvent);
           }
         },
-        (errorEvent) => {
+        (errorEvent) => { // error callback
           console.error("WebSocket Error Event:", errorEvent);
           const message = (errorEvent as any)?.message || 'Connection error';
           setError(`WebSocket connection failed: ${message}`);
           setStatusMessage('Connection failed.');
           setIsStreaming(false);
           wsRef.current = null;
+          setUserCredits(userCredits); // Revert credits
         },
-        (closeEvent: CloseEvent) => {
+        (closeEvent: CloseEvent) => { // close callback
           console.log("WebSocket Closed Event:", closeEvent.code, closeEvent.reason);
-          setIsStreaming(false); 
-          setStatusMessage(closeEvent.wasClean ? 'Processing complete.' : 'Connection closed.');
+          console.log("streamedAnswerContent exists:", !!streamedAnswerContent);
+          console.log("streamedAnswerContent length:", streamedAnswerContent.length);
+          setIsStreaming(false);
+          
+          // Check if connection closed cleanly BUT no content was received
+          if (closeEvent.wasClean && !streamedAnswerContent) { 
+            setError('Processing completed, but no solution content was received.');
+            setStatusMessage('No solution found.'); // Keep status brief
+            // Optional: Revert credits if no content means failure/no value
+            // setUserCredits(userCredits); 
+          } else if (!closeEvent.wasClean) {
+            // setError('Connection closed unexpectedly.');
+            // setStatusMessage('Connection closed.');
+            // setUserCredits(userCredits); // Revert credits only on unclean close
+          } else {
+             // Clean close with content received
+             setStatusMessage('Processing complete.'); 
+             setError(''); // Clear any previous errors
+          }
+          
           wsRef.current = null;
         }
       );
     } catch (error) {
       console.error("Error initiating WebSocket connection:", error);
       setError('Failed to connect to the solver service. Please try again.');
-      setUserCredits(userCredits + requiredCredits);
+      // Revert credits on initial connection error
+      setUserCredits(userCredits); 
       setIsStreaming(false);
       wsRef.current = null;
     }
   };
 
-  const handleExport = async (format: 'pdf' | 'docx') => {
+  const handleExport = async (format: 'pdf' | 'md') => {
     if (!streamedAnswerContent) return;
     
     setExportLoading(true);
@@ -231,7 +283,7 @@ export default function HomeScreen() {
           await Sharing.shareAsync(fileUri, { 
             mimeType: 'text/markdown',
             dialogTitle: 'Export Solution as Markdown',
-            UTI: 'public.plain-text' 
+            UTI: 'net.daringfireball.markdown'
           });
         }
       }
@@ -240,480 +292,175 @@ export default function HomeScreen() {
       console.error('Export error:', error);
     } finally {
       setExportLoading(false);
-      setShowExportDialog(false);
     }
   };
 
   const clearForm = () => {
-    wsRef.current?.close(); // Close WebSocket connection
+    wsRef.current?.close(); 
     wsRef.current = null;
-    // setReferenceBookFile(null); // Commented out
+    setReferenceBookFile(null); // Reset reference book
     setQuestionFile(null);
-    setStreamedAnswerContent(''); // Clear streamed content
+    setStreamedAnswerContent('');
+    setIsStreaming(false);
     setError('');
     setStatusMessage('');
-    setIsStreaming(false);
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}
-      >
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          <Box style={styles.header}>
-            <VStack style={styles.headerContent}>
-              <Heading style={styles.title} className='text-2xl font-bold'>Question Solver</Heading>
-              {/* <Text style={styles.subtitle}>Upload your reference book and question paper for detailed solutions</Text> */}
-              <Text style={styles.subtitle}>Upload your question paper for detailed solutions</Text>
-            </VStack>
-            
-            <HStack style={styles.creditsContainer}>
-              <Image 
-                source={require('../../assets/images/undraw_learning-sketchingsh.png')}
-                alt="Credits"
-                style={styles.creditIcon}
-                defaultSource={{ uri: 'https://via.placeholder.com/24' }}
-              />
-              <Text style={styles.creditText}>
-                {userCredits} credits
-              </Text>
-            </HStack>
-          </Box>
-          
-          <Box style={styles.formContainer}>
-            {/* Comment out Reference Book FormControl */}
-            {/* 
-            <FormControl isRequired isInvalid={!referenceBookFile && !!error}> 
-              <FormControlLabel>
-                <FormControlLabelText>Reference Book</FormControlLabelText>
-              </FormControlLabel>
-              <Pressable 
-                onPress={pickReferenceBook}
-                style={[styles.fileUploadContainer, !referenceBookFile && !!error && styles.errorBorder]}
-              >
-                {referenceBookFile ? (
-                  <HStack style={styles.fileSelectedContainer}>
-                    <Feather name="file-text" size={24} color="#4A5568" />
-                    <VStack style={styles.fileInfoContainer}>
-                      <Text numberOfLines={1} style={styles.fileName}>{referenceBookFile.name}</Text>
-                      <Text style={styles.fileSize}>{(referenceBookFile.size ? (referenceBookFile.size / 1024).toFixed(2) : '0')} KB</Text>
-                    </VStack>
-                  </HStack>
-                ) : (
-                  <VStack style={styles.fileUploadContent}>
-                    <Feather name="upload" size={32} color="#A0AEC0" />
-                    <Text style={styles.uploadText}>Click to upload reference book</Text>
-                    <Text style={styles.uploadSubtext}>PDF, DOCX, or image files</Text>
-                  </VStack>
-                )}
-              </Pressable>
-              <FormControlHelper>
-                <FormControlHelperText>
-                  Upload your reference book or study material
-                </FormControlHelperText>
-              </FormControlHelper>
-            </FormControl>
-            */}
-            
-            {/* Ensure question container doesn't have the top margin style if the reference box is commented */}
-            <FormControl isRequired isInvalid={!questionFile && !!error} /* style={styles.questionContainer} - remove style or comment out */>
-              <FormControlLabel>
-                <FormControlLabelText>Question Paper</FormControlLabelText>
-              </FormControlLabel>
-              <Pressable 
-                onPress={pickQuestionPaper}
-                style={[styles.fileUploadContainer, !questionFile && !!error && styles.errorBorder]}
-              >
-                {questionFile ? (
-                  <HStack style={styles.fileSelectedContainer}>
-                    <Feather name="file-text" size={24} color="#4A5568" />
-                    <VStack style={styles.fileInfoContainer}>
-                      <Text numberOfLines={1} style={styles.fileName}>{questionFile.name}</Text>
-                      <Text style={styles.fileSize}>{(questionFile.size ? (questionFile.size / 1024).toFixed(2) : '0')} KB</Text>
-                    </VStack>
-                  </HStack>
-                ) : (
-                  <VStack style={styles.fileUploadContent}>
-                    <Feather name="upload" size={32} color="#A0AEC0" />
-                    <Text style={styles.uploadText}>Click to upload question paper</Text>
-                    <Text style={styles.uploadSubtext}>PDF, DOCX, or image files</Text>
-                  </VStack>
-                )}
-              </Pressable>
-              <FormControlHelper>
-                <FormControlHelperText>
-                  Upload your question paper to get solutions
-                </FormControlHelperText>
-              </FormControlHelper>
-            </FormControl>
-            
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-            
-            <HStack style={styles.buttonContainer}>
-              <Button
-                style={styles.clearButton}
-                variant="outline"
-                onPress={clearForm}
-                // Update isDisabled logic - keep current, comment old
-                // isDisabled={isStreaming || (!referenceBookFile && !questionFile && !streamedAnswerContent)}
-                isDisabled={isStreaming || (!questionFile && !streamedAnswerContent)} 
-              >
-                <ButtonText>Clear</ButtonText>
-              </Button>
-              
-              <Button
-                style={styles.solveButton}
-                onPress={handleSolveQuestionStream} // Use new handler
-                // Update isDisabled logic - keep current, comment old
-                // isDisabled={isStreaming || !referenceBookFile || !questionFile || userCredits < 5} 
-                isDisabled={isStreaming || !questionFile || userCredits < 5} 
-              >
-                {isStreaming ? <Spinner /> : <ButtonText>Solve Question</ButtonText>}
-              </Button>
-            </HStack>
-
-            {/* Loading Overlay - Placed inside formContainer */} 
-            {isStreaming && (
-              <BlurView intensity={50} tint="light" style={styles.loadingOverlay}>
-                <Spinner size="large" color="#333" />
-                <Text style={[styles.loadingText, { marginTop: 16 }]}>{statusMessage || 'Processing...'}</Text>
-              </BlurView>
-            )}
-          </Box>
-          
-          {streamedAnswerContent ? (
-            <Box style={styles.answerContainer}>
-              <HStack style={styles.answerHeader}>
-                <Heading size="md">Solution</Heading>
-                <HStack space="sm">
-                  <Text style={styles.costText}>-5 credits</Text>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onPress={() => setShowExportDialog(true)}
-                    isDisabled={isStreaming}
-                  >
-                    <HStack style={{ alignItems: 'center' }} space="sm">
-                      <Feather name="download" size={16} color="#000" />
-                      <ButtonText>Export</ButtonText>
-                    </HStack>
-                  </Button>
-                </HStack>
-              </HStack>
-              <Divider style={styles.divider} />
-              <Box style={styles.markdownContainer}>
-                <Markdown style={markdownStyles}>{streamedAnswerContent}</Markdown>
-              </Box>
-            </Box>
-          ) : null}
-        </ScrollView>
-
-        <AlertDialog
-          isOpen={showExportDialog}
-          onClose={() => setShowExportDialog(false)}
+    <Box className="bg-gray-50 dark:bg-black flex-1">
+      <SafeAreaView style={{ flex: 1, paddingTop: Platform.OS === 'android' ? Constants.statusBarHeight : 0 }}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          style={{ flex: 1 }}
         >
-          <AlertDialogBackdrop style={styles.dialogBackdrop} />
-          <AlertDialogContent style={styles.dialogContent}>
-            <AlertDialogHeader style={styles.dialogHeader}>
-              <Heading size="lg">Export Solution</Heading>
-              <AlertDialogCloseButton />
-            </AlertDialogHeader>
-            <AlertDialogBody style={styles.dialogBody}>
-              <Text>Choose export format:</Text>
-            </AlertDialogBody>
-            <AlertDialogFooter style={styles.dialogFooter}>
-              <Button
-                variant="outline"
-                onPress={() => handleExport('pdf')}
-                isDisabled={exportLoading || isStreaming}
-                style={styles.exportButton}
+          <HStack className="p-4 items-center justify-between border-b border-gray-200 dark:border-gray-700">
+            <Heading size="lg" className="text-gray-900 dark:text-gray-100">Solver</Heading>
+            <Box className="bg-blue-100 dark:bg-blue-900 px-3 py-1 rounded-full">
+              <Text className="font-semibold text-blue-700 dark:text-blue-300">Credits: {userCredits ?? 'N/A'}</Text>
+            </Box>
+          </HStack>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+            <VStack space="lg" className="p-6">
+              <VStack space="md">
+                <HStack space="sm" className="items-center">
+                  <Heading size="md" className="text-gray-900 dark:text-gray-100">Question Paper</Heading>
+                  <Text className="text-red-600 dark:text-red-400 font-bold text-lg">*</Text> 
+                </HStack>
+                <Pressable onPress={pickQuestionPaper} disabled={isStreaming}>
+                  <Box className="border border-dashed border-gray-400 dark:border-gray-600 rounded-lg p-6 items-center justify-center bg-gray-100 dark:bg-gray-800">
+                    <Feather name="upload-cloud" size={28} color="#9CA3AF" />
+                    <Text className="mt-2 text-gray-600 dark:text-gray-400 text-center">
+                      {questionFile ? questionFile.name : 'Tap to select PDF (Required)'}
+                    </Text>
+                  </Box>
+                </Pressable>
+              </VStack>
+
+              <VStack space="md" className="mt-4">
+                 <Heading size="md" className="text-gray-900 dark:text-gray-100">Reference Book (Optional)</Heading>
+                <Pressable onPress={pickReferenceBook} disabled={isStreaming}>
+                  <Box className="border border-gray-300 dark:border-gray-600 rounded-lg p-6 items-center justify-center bg-gray-200 dark:bg-gray-700">
+                    <Feather name="book-open" size={28} color="#9CA3AF" />
+                    <Text className="mt-2 text-gray-600 dark:text-gray-400 text-center">
+                      {referenceBookFile ? referenceBookFile.name : 'Tap to select PDF'}
+                    </Text>
+                  </Box>
+                </Pressable>
+              </VStack>
+
+              <Button 
+                onPress={handleSolveQuestionStream} 
+                isDisabled={!questionFile || isStreaming}
+                size="lg"
+                className="
+                  w-full mt-4 rounded-lg px-6 h-11 flex-row items-center justify-center 
+                  bg-blue-600 dark:bg-blue-500 
+                  hover:bg-blue-700 dark:hover:bg-blue-400 
+                  active:bg-blue-800 dark:active:bg-blue-300 
+                  active:scale-95 active:brightness-90 
+                  disabled:opacity-50 
+                  transition duration-150 ease-in-out
+                "
               >
-                {exportLoading ? <Spinner /> : <ButtonText>PDF</ButtonText>}
+                 {isStreaming ? <ButtonSpinner color="white" /> : <Ionicons name="sparkles-outline" size={20} color="white" />}
+                <ButtonText className="font-bold text-white">
+                  {isStreaming ? 'Solving...' : 'Solve Question'}
+                </ButtonText>
               </Button>
-              <Box style={{ width: 8 }} />
-              <Button
-                variant="solid"
-                onPress={() => handleExport('docx')}
-                isDisabled={exportLoading || isStreaming}
-                style={styles.exportButton}
-              >
-                {exportLoading ? <Spinner /> : <ButtonText>Markdown</ButtonText>}
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+
+              {(statusMessage && !error) && (
+                <VStack space="sm" className="mt-4 items-center">
+                  {isStreaming && <Spinner size="small" />}
+                  {statusMessage.includes('Processing complete') ? (
+                    <HStack space="xs" className="items-center bg-green-100 dark:bg-green-900 px-3 py-1 rounded-full">
+                      <Feather name="check-circle" size={16} color="#10B981" />
+                      <Text className="text-green-700 dark:text-green-300 font-medium">{statusMessage}</Text>
+                    </HStack>
+                  ) : (
+                    <Text className="text-gray-600 dark:text-gray-400 text-sm">{statusMessage}</Text>
+                  )}
+                </VStack>
+              )}
+
+              {error && (
+                <Box className="mt-4 p-3 bg-red-100 dark:bg-red-900 rounded-md">
+                  <Text className="text-red-700 dark:text-red-300 font-medium">{error}</Text>
+                </Box>
+              )}
+              
+              {streamedAnswerContent && (
+                <VStack space="md" className="mt-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800">
+                  <HStack className="justify-between items-center">
+                     <Heading size="md" className="text-gray-900 dark:text-gray-100">Solution</Heading>
+                     <HStack space="sm">
+                      {/* Direct export icons */}
+                      <Pressable 
+                        onPress={() => handleExport('pdf')} 
+                        disabled={isStreaming || exportLoading}
+                        className="w-8 h-8 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-700"
+                      >
+                        {exportLoading ? 
+                          <Spinner size="small" /> : 
+                          <Feather name="file-text" size={16} color="#4B5563" />
+                        }
+                      </Pressable>
+                      <Pressable 
+                        onPress={() => handleExport('md')} 
+                        disabled={isStreaming || exportLoading}
+                        className="w-8 h-8 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-700"
+                      >
+                        {exportLoading ? 
+                          <Spinner size="small" /> : 
+                          <Feather name="file" size={16} color="#4B5563" />
+                        }
+                      </Pressable>
+                      <Button variant="outline" size="xs" action="secondary" onPress={clearForm} disabled={isStreaming || exportLoading}>
+                         <Feather name="x" size={14} style={{ marginRight: 4 }}/>
+                         <ButtonText>Clear</ButtonText>
+                      </Button>
+                     </HStack>
+                  </HStack>
+                  
+                  <Divider className="my-2 bg-gray-200 dark:bg-gray-700" />
+
+                  <Box className="text-gray-800 dark:text-gray-200">
+                     <Markdown style={markdownStyles}>
+                       {streamedAnswerContent}
+                     </Markdown>
+                  </Box>
+                </VStack>
+              )}
+
+              {/* Debug info - REMOVE IN PRODUCTION */}
+              {/* {__DEV__ && (
+                <VStack space="sm" className="mt-4 p-3 bg-gray-100 dark:bg-gray-900 rounded-md">
+                  <Text className="text-gray-800 dark:text-gray-200 font-bold">Debug Info:</Text>
+                  <Text className="text-gray-700 dark:text-gray-300">isStreaming: {isStreaming.toString()}</Text>
+                  <Text className="text-gray-700 dark:text-gray-300">Status: {statusMessage}</Text>
+                  <Text className="text-gray-700 dark:text-gray-300">Error: {error || 'none'}</Text>
+                  <Text className="text-gray-700 dark:text-gray-300">
+                    Content: {streamedAnswerContent ? `${streamedAnswerContent.length} chars` : 'none'}
+                  </Text>
+                </VStack>
+              )} */}
+            </VStack>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Box>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    paddingTop: Platform.OS === 'android' ? Constants.statusBarHeight : 0,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginTop: 20,
-    marginBottom: 20,
-  },
-  headerContent: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-  },
-  subtitle: {
-    opacity: 0.7,
-    marginTop: 4,
-  },
-  creditsContainer: {
-    alignItems: 'center',
-    backgroundColor: 'white',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  creditIcon: {
-    width: 24,
-    height: 24,
-  },
-  creditText: {
-    marginLeft: 4,
-    fontWeight: '500',
-  },
-  formContainer: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    marginBottom: 20,
-    position: 'relative', // Needed for absolute positioning of overlay
-    overflow: 'hidden', // Clip the blur overlay to the container bounds
-  },
-  fileUploadContainer: {
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderStyle: 'dashed',
-    borderRadius: 8,
-    padding: 16,
-    minHeight: 120,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f9f9f9',
-  },
-  fileUploadContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  uploadText: {
-    marginTop: 8,
-    fontWeight: '500',
-  },
-  uploadSubtext: {
-    fontSize: 12,
-    opacity: 0.6,
-    marginTop: 4,
-  },
-  fileSelectedContainer: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  fileInfoContainer: {
-    marginLeft: 8,
-    flex: 1,
-  },
-  fileName: {
-    fontWeight: '500',
-  },
-  fileSize: {
-    fontSize: 12,
-    opacity: 0.6,
-  },
-  errorBorder: {
-    borderColor: 'red',
-  },
-  buttonContainer: {
-    justifyContent: 'space-between',
-    marginTop: 16,
-  },
-  clearButton: {
-    flex: 1,
-    marginRight: 8,
-  },
-  solveButton: {
-    flex: 2,
-  },
-  errorText: {
-    color: 'red',
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject, // Cover the parent (formContainer)
-    backgroundColor: 'rgba(255, 255, 255, 0.7)', // Semi-transparent white fallback
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10, // Ensure it's above other form elements
-  },
-  loadingText: {
-    // Removed marginTop here, will add it inline if needed
-    opacity: 0.9, // Make text slightly more visible on blur
-    textAlign: 'center',
-    fontSize: 16, // Slightly larger status text
-    fontWeight: '500',
-    color: '#333',
-  },
-  markdownContainer: {
-    paddingVertical: 16,
-  },
-  answerContainer: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    marginTop: 20,
-  },
-  answerHeader: {
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  costText: {
-    fontSize: 14,
-    color: '#D32F2F',
-    fontWeight: '500',
-    alignSelf: 'center',
-  },
-  divider: {
-    marginVertical: 8,
-  },
-  dialogBackdrop: {
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-  },
-  dialogContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 0,
-    width: '90%',
-    maxWidth: 400,
-    alignSelf: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  dialogHeader: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  dialogBody: {
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-  },
-  dialogFooter: {
-    backgroundColor: '#FFFFFF',
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-  },
-  exportButton: {
-    minWidth: 100,
-  }
-});
-
-// Basic styles for react-native-markdown-display
 const markdownStyles = StyleSheet.create({
-  heading1: {
-    fontSize: 28,
-    fontWeight: 'bold', 
-    marginTop: 15,
-    marginBottom: 10,
-    color: '#000000',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingBottom: 5,
+  body: { 
+  },
+  heading1: { 
+    marginTop: 16,
+    marginBottom: 8,
   },
   heading2: {
-    fontSize: 22,
-    fontWeight: 'bold', 
     marginTop: 12,
     marginBottom: 6,
-    color: '#000000',
-  },
-  heading3: {
-    fontSize: 18, 
-    fontWeight: 'bold',
-    marginTop: 10,
-    marginBottom: 4,
-    color: '#000000',
-  },
-  body: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#000000',
-  },
-  strong: {
-    fontWeight: 'bold',
-    color: '#000000',
-  },
-  em: {
-    fontStyle: 'italic',
-    color: '#000000',
-  },
-  list_item: {
-    marginVertical: 5,
-  },
-  code_block: {
-    backgroundColor: '#f0f0f0',
-    padding: 12,
-    borderRadius: 4,
-    marginVertical: 8,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: '#000000',
-  },
-  code_inline: {
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 3,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: '#000000',
   },
 });

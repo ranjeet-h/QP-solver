@@ -129,10 +129,25 @@ Final answer with explanation
         ) {
             console.log('Received status message:', message);
             onStatusUpdate(message); // Call the status update callback
+            
+            // If we receive the "Finished iterating" message, close the connection
+            if (message.startsWith('[DEBUG] Finished iterating')) {
+                console.log('Received completion message, closing WebSocket');
+                setTimeout(() => ws.close(1000, 'Completed'), 500); // Close after a small delay
+            }
         } 
-        // Otherwise, treat as regular content (including the final "Processing complete" message)
+        // Special handling for Processing complete message
+        else if (message.includes('**Processing complete.**')) {
+            console.log('Processing complete message received');
+            onStatusUpdate('[INFO] Processing complete.'); // Treat as a status update
+            
+            // Close the WebSocket after processing complete
+            console.log('Closing WebSocket due to completion message');
+            setTimeout(() => ws.close(1000, 'Completed'), 500); // Close after a small delay
+        }
+        // Otherwise, treat as regular content
         else {
-            console.log('Received as Markdown Chunk (no completion check):', JSON.stringify(message)); 
+            console.log('Received content chunk:', message.substring(0, 30) + (message.length > 30 ? '...' : '')); 
             onContentChunk(message); // Pass content chunk
         }
       } else {
