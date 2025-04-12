@@ -1,33 +1,41 @@
 import os
 from dotenv import load_dotenv
 from typing import Any
+from pydantic_settings import BaseSettings
 
 # Load environment variables from .env file
 load_dotenv()
 
-class Settings:
+class Settings(BaseSettings):
+    SECRET_KEY: str = "your-secret-key"  # Change in production
+    
     PROJECT_NAME: str = "PDF Processing Backend"
     VERSION: str = "0.1.0"
 
     # Database settings for MySQL
-    MYSQL_USER = os.getenv("MYSQL_USER", "root")
-    MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "password")
-    MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
-    MYSQL_PORT = os.getenv("MYSQL_PORT", "3306")
-    MYSQL_DB = os.getenv("MYSQL_DB", "pdf_backend_db")
+    MYSQL_USER: str = os.getenv("MYSQL_USER", "root")
+    MYSQL_PASSWORD: str = os.getenv("MYSQL_PASSWORD", "password")
+    MYSQL_HOST: str = os.getenv("MYSQL_HOST", "localhost")
+    MYSQL_PORT: str = os.getenv("MYSQL_PORT", "3306")
+    MYSQL_DB: str = os.getenv("MYSQL_DB", "pdf_backend_db")
     
     # Using pymysql as connector - this is safer than using raw passwords in connection strings
     @property
-    def DATABASE_URL(self) -> str:
+    def get_database_url(self) -> str:
         return f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}"
 
+    # Computed DATABASE_URL field
+    @property
+    def DATABASE_URL(self) -> str:
+        return self.get_database_url
+
     # JWT settings for authentication
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY") or "supersecretkey-changeme-in-production"
-    JWT_ALGORITHM = os.getenv("JWT_ALGORITHM") or "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY") or "supersecretkey-changeme-in-production"
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM") or "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
     # Google API Key for Gemini
-    GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+    GEMINI_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
 
     def __str__(self) -> str:
         """Override string representation to hide sensitive data"""

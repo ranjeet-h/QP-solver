@@ -377,6 +377,42 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
 
 @router.websocket("/ws/process")
 async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_db)):
+    """
+    WebSocket endpoint for real-time PDF processing.
+    
+    The connection flow:
+    1. Client connects and sends JWT token as JSON: {"token": "your-jwt-token"}
+    2. Server validates token and accepts connection
+    3. Client sends PDF file as binary data or base64 encoded
+    4. Server processes PDF and streams results back
+    5. Connection remains open for real-time updates
+    
+    Authentication:
+    - Requires valid JWT token sent as first message
+    - Token must be sent as JSON: {"token": "your-jwt-token"}
+    
+    File Upload:
+    - Supports binary upload (preferred)
+    - Supports base64 encoded upload
+    - Maximum file size: 10MB
+    - File format: PDF only
+    
+    Response Format:
+    - Status updates: "[INFO] Processing started..."
+    - Error messages: "[ERROR] Invalid file format"
+    - Processing results: Streamed as they're generated
+    - Metrics: Processing time, token usage, etc.
+    
+    Error Handling:
+    - Invalid token: Connection closed with 401
+    - Invalid file: Error message sent, connection remains open
+    - Processing error: Error message sent, connection remains open
+    
+    Notes:
+    - Keep connection alive for entire processing duration
+    - One file per connection
+    - Reconnect for new files
+    """
     await websocket.accept()
     temp_dir = None
     authenticated = False
@@ -623,9 +659,29 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
             except Exception as cleanup_error:
                 print(f"Error cleaning up temp directory: {cleanup_error}")
 
-# --- START: New Simple WebSocket Test Endpoint ---
 @router.websocket("/ws/simple_test")
 async def websocket_simple_test(websocket: WebSocket):
+    """
+    Simple WebSocket test endpoint.
+    
+    Useful for:
+    - Testing WebSocket connectivity
+    - Verifying client implementation
+    - Debugging connection issues
+    
+    Flow:
+    1. Accepts connection
+    2. Sends 3 test messages with delays
+    3. Closes connection
+    
+    Messages:
+    1. "Message 1" - Immediate
+    2. "Message 2" - After 1 second
+    3. "Message 3" - After 2 more seconds
+    4. "Test complete" - Before closing
+    
+    No authentication required for this test endpoint.
+    """
     await websocket.accept()
     print("Client connected to /ws/simple_test")
     try:
@@ -649,10 +705,60 @@ async def websocket_simple_test(websocket: WebSocket):
         print("Closing connection for /ws/simple_test")
         # Ensure connection is closed properly even on error
         await websocket.close()
-# --- END: New Simple WebSocket Test Endpoint ---
 
 # post route to solve question paper with reference book if provided
-@router.post("/process")
+@router.post(
+    "/process",
+    summary="Process Question Paper",
+    description="""
+    Process a question paper PDF using Gemini AI.
+    Analyzes questions and provides answers using reference material if provided.
+    Requires authentication and sufficient credits.
+    """,
+    response_description="Processing job details and initial results",
+    tags=["PDF Processing"],
+    responses={
+        200: {
+            "description": "Processing started successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "id": "job_123456",
+                        "status": "processing",
+                        "file_name": "question_paper.pdf",
+                        "created_at": "2024-03-21T10:00:00",
+                        "credits_used": 0,
+                        "estimated_time": "2-3 minutes"
+                    }
+                }
+            }
+        },
+        400: {
+            "description": "Invalid file format or size",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "File must be a PDF under 10MB"}
+                }
+            }
+        },
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Not authenticated"}
+                }
+            }
+        },
+        402: {
+            "description": "Insufficient credits",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Insufficient credits. Required: 10, Available: 5"}
+                }
+            }
+        }
+    }
+)
 async def process_question_paper(
     file: UploadFile = File(...), 
     ref_book: UploadFile = None, 
