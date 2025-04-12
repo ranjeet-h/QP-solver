@@ -9,7 +9,45 @@ import asyncio
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="API for processing PDF question papers with Gemini AI"
+    description="""
+    🚀 Question Paper Solver API
+
+    This API provides endpoints for:
+    * 👤 User Authentication and Management
+    * 📝 PDF Question Paper Processing
+    * 💳 Payment and Credit Management
+    
+    ## Features
+    * Process question papers using Gemini AI
+    * User authentication with JWT
+    * Credit-based system for paper processing
+    * Secure payment integration
+    
+    ## Authentication
+    All protected endpoints require a valid JWT token obtained through the login endpoint.
+    Include the token in the Authorization header as: `Bearer <token>`
+    """,
+    openapi_tags=[
+        {
+            "name": "authentication",
+            "description": "Operations for user registration, login, and profile management"
+        },
+        {
+            "name": "pdf-processing",
+            "description": "Endpoints for processing question papers and reference materials"
+        },
+        {
+            "name": "payment",
+            "description": "Payment operations and credit management"
+        }
+    ],
+    contact={
+        "name": "API Support",
+        "email": "support@qpsolver.com",
+    },
+    license_info={
+        "name": "MIT",
+    }
 )
 
 # Add CORS middleware

@@ -658,7 +658,42 @@ async def process_question_paper(
     ref_book: UploadFile = None, 
     db: Session = Depends(get_db)
 ):
-    """Process a PDF with Gemini and return results"""
+    """
+    Process a question paper PDF using Gemini AI.
+
+    This endpoint analyzes a question paper and provides answers using the reference material if provided.
+    Requires authentication and sufficient credits in user's account.
+
+    Parameters:
+    - **file**: Question paper PDF file (required)
+        - Format: PDF
+        - Max size: 10MB
+    - **ref_book**: Reference book PDF file (optional)
+        - Format: PDF
+        - Max size: 20MB
+        - Used to provide more accurate answers
+
+    Returns:
+    - **id**: Unique identifier for the processing job
+    - **status**: Current status of processing
+    - **results**: Array of processed questions and answers
+        - question: Extracted question text
+        - answer: Generated answer
+        - confidence: Confidence score (0-1)
+    - **credits_used**: Number of credits consumed for this processing
+
+    Raises:
+    - 400: Invalid file format or size
+    - 401: Authentication failed
+    - 402: Insufficient credits
+    - 422: Validation Error
+    - 500: Processing Error
+
+    Notes:
+    - Processing may take a few minutes depending on the size of the files
+    - Each question processed consumes credits from the user's account
+    - For real-time progress updates, use the WebSocket endpoint
+    """
     temp_dir = None
     try:
         # Initialize the API client
