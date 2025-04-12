@@ -16,7 +16,7 @@ import base64
 import fitz  # PyMuPDF
 import json
 try:
-    import jwt
+    from jose import jwt
 except ImportError:
     # For development only, if JWT package isn't available
     jwt = None
