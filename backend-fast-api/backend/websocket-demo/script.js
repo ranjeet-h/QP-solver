@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showdownConverter.setFlavor('github'); // Use GFM flavor
         console.log("Showdown converter initialized.");
     } else {
-        console.error("Showdown library not loaded!");
+        console.log("Showdown library not loaded!");
     }
     
     // Load MathJax for rendering math expressions
@@ -241,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
         } catch (error) {
             restResponseContainer.innerHTML = `<div class="error">Error: ${error.message}</div>`;
-            console.error('API error:', error);
+            console.log('API error:', error);
         }
     }
     
@@ -286,7 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.log("Auth data sent:", { token: "***" });
                     } catch (error) {
                         appendToWsResponse(`Failed to send authentication: ${error.message}`, "system-message");
-                        console.error("Auth send error:", error);
+                        console.log("Auth send error:", error);
                     }
                 }
             });
@@ -329,7 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Handle errors
             socket.addEventListener('error', (event) => {
-                console.error('WebSocket error:', event);
+                console.log('WebSocket error:', event);
                 updateConnectionStatus('disconnected');
                 isConnected = false;
                 wsProcessBtn.disabled = true;
@@ -366,7 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Function to upload a PDF file (adapted from user input)
     function uploadPDF(file) { 
         if (!socket || socket.readyState !== WebSocket.OPEN) {
-            console.error('WebSocket not connected');
+            console.log('WebSocket not connected');
             appendToWsResponse("<div class='error'><p>WebSocket not connected. Please connect first.</p></div>");
             return;
         }
@@ -383,11 +383,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 appendToWsResponse(`PDF file sent (${formatBytes(e.target.result.byteLength)})`, "system-message");
             } catch (error) {
                  appendToWsResponse(`Failed to send PDF: ${error.message}`, "system-message");
-                 console.error("File send error:", error);
+                 console.log("File send error:", error);
             }
         };
         reader.onerror = (error) => {
-            console.error('Error reading file:', error);
+            console.log('Error reading file:', error);
             appendToWsResponse(`<div class='error'><p>Error reading file: ${error}</p></div>`);
         };
         
@@ -510,7 +510,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                  block.parentNode.classList.add('prism-highlighted');
                              }
                          } catch (e) {
-                             console.error("Prism highlighting error:", e, block); // Log Prism specific error
+                             console.log("Prism highlighting error:", e, block); // Log Prism specific error
                          }
                          // -------------------------------------
                     } else if (block.classList.contains('language-none')) {
@@ -531,10 +531,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.MathJax.typesetPromise([container]).then(() => {
                     console.log("MathJax typesetting finished.");
                 }).catch(err => {
-                    console.error('MathJax typesetting error:', err);
+                    console.log('MathJax typesetting error:', err);
                 });
             } catch (e) {
-                console.error('Error calling MathJax:', e);
+                console.log('Error calling MathJax:', e);
             }
         } else {
              console.warn("MathJax not ready for rendering.");
@@ -560,7 +560,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- NEW Function to render Markdown to HTML --- 
     function renderMarkdownToHtml(markdownText) {
         if (!showdownConverter) {
-            console.error("Showdown converter not ready.");
+            console.log("Showdown converter not ready.");
             wsResponseContainer.innerHTML = '<p style="color: red;">Error: Markdown converter failed to load.</p>';
             return;
         }
@@ -589,7 +589,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // wsResponseContainer.scrollTop = wsResponseContainer.scrollHeight;
 
         } catch (error) {
-            console.error("Error converting Markdown:", error);
+            console.log("Error converting Markdown:", error);
             wsResponseContainer.innerHTML = `<p style="color: red;">Error rendering Markdown: ${error.message}</p>`;
         }
     }
@@ -622,7 +622,7 @@ document.addEventListener('DOMContentLoaded', () => {
              }
             //  container.scrollTop = container.scrollHeight;
          } else {
-             console.error("Cannot append system HTML: wsResponseContainer not found.");
+             console.log("Cannot append system HTML: wsResponseContainer not found.");
          }
     }
 }); 

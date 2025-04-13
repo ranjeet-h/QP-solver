@@ -3,9 +3,8 @@ from datetime import datetime
 from typing import Optional
 
 class UserBase(BaseModel):
-    email_phone: str = Field(..., description="Either email or phone number")
-    email: Optional[EmailStr] = None
-    phone_number: Optional[str] = None
+    email: Optional[EmailStr] = Field(None, description="User's email address")
+    phone_number: Optional[str] = Field(None, description="User's phone number")
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     latitude: Optional[float] = None
@@ -13,27 +12,17 @@ class UserBase(BaseModel):
     ip_address: Optional[str] = None
 
     @model_validator(mode="after")
-    def identify_and_set_email_phone(self):
-        input_value = self.email_phone.strip()
-        if '@' in input_value:
-            self.email = input_value.lower()
-        else:
-            cleaned_number = ''.join(filter(str.isdigit, input_value))
-            self.phone_number = cleaned_number
-        return self
-
-    @model_validator(mode="after")
     def normalize_fields(self):
         if self.email:
             self.email = self.email.strip().lower()
         if self.phone_number:
-            self.phone_number = self.phone_number.strip()
+            self.phone_number = ''.join(filter(str.isdigit, self.phone_number.strip()))
         return self
 
     @model_validator(mode="after")
     def check_email_or_phone(self):
         if not self.email and not self.phone_number:
-            raise ValueError("Failed to identify valid email or phone number from input")
+            raise ValueError("Either email or phone number must be provided")
         return self
 
     class Config:
@@ -43,26 +32,29 @@ class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
     first_name: str
 
-class UserLogin(BaseModel):
-    email_phone: str = Field(..., description="Either email or phone number")
-    email: Optional[EmailStr] = None
-    phone_number: Optional[str] = None
-    password: str
-
     @model_validator(mode="after")
-    def identify_and_set_email_phone(self):
-        input_value = self.email_phone.strip()
-        if '@' in input_value:
-            self.email = input_value.lower()
-        else:
-            cleaned_number = ''.join(filter(str.isdigit, input_value))
-            self.phone_number = cleaned_number
+    def check_email_or_phone_required(self):
+        if not self.email and not self.phone_number:
+            raise ValueError("Either email or phone number is required for signup")
         return self
+
+class UserLogin(BaseModel):
+    email: Optional[EmailStr] = Field(None, description="User's email address for login")
+    phone_number: Optional[str] = Field(None, description="User's phone number for login")
+    password: str
 
     @model_validator(mode="after")
     def check_login_identifier(self):
         if not self.email and not self.phone_number:
-            raise ValueError("Failed to identify valid email or phone number from input")
+            raise ValueError("Either email or phone number must be provided for login")
+        if self.email and self.phone_number:
+            raise ValueError("Provide either email or phone number for login, not both")
+
+        if self.email:
+            self.email = self.email.strip().lower()
+        elif self.phone_number:
+            self.phone_number = ''.join(filter(str.isdigit, self.phone_number.strip()))
+
         return self
 
 class UserUpdate(BaseModel):
@@ -122,7 +114,6 @@ class UserResponse(BaseModel):
     is_active: bool
     is_superuser: bool
     created_at: datetime
-    email_phone: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from typing import Optional
+import logging
 
 from ..models.user import User
 from ..core.exceptions import NotFoundException, DatabaseError
@@ -32,13 +33,35 @@ class AuthRepository:
 
     def create_user(self, user_data: dict) -> User:
         try:
-            user = User(**user_data)
+            # Explicitly create User instance and set attributes
+            user = User()
+            user.email = user_data.get('email')
+            user.password = user_data.get('password') # Hashed password
+            user.first_name = user_data.get('first_name')
+            user.last_name = user_data.get('last_name') # Optional
+            user.phone_number = user_data.get('phone_number') # Optional
+            user.latitude = user_data.get('latitude') # Optional
+            user.longitude = user_data.get('longitude') # Optional
+            user.ip_address = user_data.get('ip_address') # Optional
+            
+            # is_active and is_superuser have defaults in the model, 
+            # but can be overridden if present in user_data
+            if 'is_active' in user_data:
+                user.is_active = user_data['is_active']
+            if 'is_superuser' in user_data:
+                user.is_superuser = user_data['is_superuser']
+
+            # Add logging to see the constructed user object before adding
+            logging.info(f"Constructed User object: {user.__dict__}")
+
             self.db.add(user)
             self.db.commit()
             self.db.refresh(user)
             return user
         except SQLAlchemyError as e:
             self.db.rollback()
+            logging.error(f"SQLAlchemyError in create_user: {e}") # More specific log
+            logging.error(f"Data attempted: {user_data}") # Log input data again on error
             raise DatabaseError(f"Error creating user: {str(e)}")
 
     def update_user(self, user: User, update_data: dict) -> User:

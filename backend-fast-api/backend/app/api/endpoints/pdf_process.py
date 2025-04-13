@@ -16,10 +16,11 @@ import base64
 import fitz  # PyMuPDF
 import json
 try:
-    from jose import jwt
+    from jose import jwt, exceptions as jose_exceptions
 except ImportError:
     # For development only, if JWT package isn't available
     jwt = None
+    jose_exceptions = None
     print("WARNING: JWT package not installed, token validation will be mocked")
 
 router = APIRouter()
@@ -99,35 +100,39 @@ def validate_token(token: str) -> Optional[Dict[str, Any]]:
     """
     Validate JWT token and return payload if valid
     """
-    try:
-        if jwt is None:
-            # Mock validation for development if jwt package isn't available
-            print("Using mock token validation")
-            return {"sub": "test_user", "exp": 1754911691}
+    if jwt is None or jose_exceptions is None:
+        # Mock validation for development if jwt package isn't available
+        print("Using MOCK token validation as jose package is missing")
+        # Return a payload that likely matches a real user for testing
+        return {"sub": "test@example.com", "exp": 1754911691} # Example: Use an email that might exist
             
-        # In a real application, you would use a proper secret key from settings
-        secret_key = getattr(settings, "SECRET_KEY", "development_secret_key")
+    # Use settings.SECRET_KEY consistently
+    secret_key = getattr(settings, "SECRET_KEY", "development_secret_key") 
+    # Ensure algorithm matches the one used for creation
+    algorithms = [settings.JWT_ALGORITHM]
         
-        try:
-            # First try to validate with the configured secret
-            payload = jwt.decode(token, secret_key, algorithms=['HS256'])
-            return payload
-        except jwt.InvalidTokenError:
-            # For development only: fallback to accepting the token without validation
-            # In production, you would remove this and properly validate tokens
-            print("Token validation failed, but accepting it for development purposes")
-            try:
-                # Just decode the token without verification for development
-                payload = jwt.decode(token, options={"verify_signature": False})
-                return payload
-            except Exception as e:
-                print(f"Failed to decode token: {str(e)}")
-                # Still allow for development
-                return {"sub": "test_user", "exp": 1754911691}
+    # Add a check/warning if the secret key seems like a fallback
+    if secret_key == "development_secret_key":
+        print("WARNING: Using default/fallback secret key for token validation. Ensure SECRET_KEY is set in settings.")
+        # You might want to return None here in production if the key isn't properly configured
+        # return None 
+
+    try:
+        # Attempt to decode and validate the token
+        payload = jwt.decode(token, secret_key, algorithms=algorithms)
+        # Optionally add expiration check here if not handled by jwt.decode
+        # if datetime.utcnow() > datetime.utcfromtimestamp(payload.get('exp', 0)):
+        #     print("Token has expired")
+        #     return None
+        return payload
+    except jose_exceptions.JWTError as e: 
+        # Catch specific JWT errors (like ExpiredSignatureError, JWTClaimsError, etc.)
+        print(f"Token validation failed (JWTError): {str(e)}")
+        return None # Return None if validation fails
     except Exception as e:
-        print(f"Error validating token: {str(e)}")
-        # For development/testing, accept any token format
-        return {"sub": "test_user", "exp": 1754911691}  # Dummy payload for testing
+        # Catch any other unexpected errors during decoding
+        print(f"An unexpected error occurred during token validation: {str(e)}")
+        return None # Return None for any other failure
 
 async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id: int, db: Session):
     """Process a PDF with Gemini and stream results over websocket"""
@@ -303,7 +308,8 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
                     print(f"Sending chunk of size: {len(chunk.text)}")
                     store_text += chunk.text
                     await websocket.send_text(chunk.text)
-                    token_count += chunk.token_count if hasattr(chunk, 'token_count') else len(chunk.text.split())
+                    # Estimate token count based on space-separated words if not provided
+                    token_count += chunk.token_count if hasattr(chunk, 'token_count') and chunk.token_count else len(chunk.text.split())
                  else:
                      print("Received empty or non-text chunk from Gemini API")
             
@@ -311,7 +317,12 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
             # Send plain text debug message
             await websocket.send_text("[DEBUG] Finished iterating Gemini stream.")
             print("Finished processing Gemini response stream.")
-            print(f"Final store_text ** -- ** --- *** ----: {store_text}")
+            # Ensure store_text is not None before printing
+            if store_text:
+                print(f"Final store_text length: {len(store_text)}") 
+            else:
+                print("Final store_text is None or empty.")
+                store_text = "" # Ensure store_text is an empty string if nothing was received
             
         except Exception as stream_error:
             print(f"Error during content streaming: {str(stream_error)}")
@@ -342,6 +353,35 @@ async def process_pdf_with_gemini(file_path: str, websocket: WebSocket, user_id:
                 pdf_record.status = "completed"
                 pdf_record.processed_at = datetime.now()
                 db.commit()
+                db.refresh(pdf_record) # Refresh to get the latest state including created_at
+                 
+                # --- START: Save to History ---
+                if store_text: # Only save if we got a result
+                    try:
+                        # Create a title (e.g., first 100 chars, clean basic markdown)
+                        title_raw = store_text[:100].strip()
+                        # Basic cleanup: remove leading #, *, -, spaces
+                        title = title_raw.lstrip('#*-\\s ') 
+                        if not title: # Handle cases where the start is just markdown
+                            title = "Processed Content" 
+                            
+                        history_entry = models.History(
+                            user_id=user_id,
+                            pdf_name=pdf_record.filename,
+                            title=title,
+                            result=store_text,
+                            # created_at and expires_at are handled by __init__
+                        )
+                        db.add(history_entry)
+                        db.commit()
+                        # Log successful history save
+                        print(f"Successfully saved history entry ID: {history_entry.id} for User ID: {user_id}") 
+                        await websocket.send_text("[INFO] Result saved to history.")
+                    except Exception as history_error:
+                        print(f"Error saving to history: {str(history_error)}")
+                        await websocket.send_text(f"[WARNING] Could not save result to history: {str(history_error)}")
+                # --- END: Save to History ---
+
             except Exception as update_error:
                 # Send plain text warning
                 await websocket.send_text(f"[WARNING] Could not update PDF record: {str(update_error)}")
@@ -440,11 +480,40 @@ async def websocket_pdf_process(websocket: WebSocket, db: Session = Depends(get_
                     payload = validate_token(token)
                     if payload:
                         authenticated = True
-                        # Extract user ID from token if available
-                        if "sub" in payload:
-                            # In a real app, you would look up the user ID from the subject
-                            # For now, we'll just use a default ID
-                            user_id = 1
+                        # Extract user identifier (subject) from token payload
+                        user_identifier = payload.get("sub")
+                        if user_identifier:
+                            db_user = None
+                            # Try to lookup user by ID first if identifier is numeric
+                            if user_identifier.isdigit():
+                                try:
+                                    user_id_from_token = int(user_identifier)
+                                    db_user = db.query(models.User).filter(models.User.id == user_id_from_token).first()
+                                    print(f"Attempted lookup by ID: {user_id_from_token}")
+                                except ValueError:
+                                    print(f"Could not convert token subject '{user_identifier}' to integer ID.")
+                                    pass # Fall through to try email lookup
+                            
+                            # If not found by ID or identifier wasn't numeric, try by email
+                            if not db_user:
+                                print(f"Attempting lookup by email: {user_identifier}")
+                                db_user = db.query(models.User).filter(models.User.email == user_identifier).first()
+
+                            # Check if user was found by either method
+                            if db_user:
+                                user_id = db_user.id # Use the actual ID from the database
+                                print(f"User identified from token: ID={user_id}, Identifier={user_identifier}")
+                            else:
+                                # Handle case where token subject doesn't match a user by ID or email
+                                print(f"Warning: User with identifier '{user_identifier}' from token not found in DB by ID or email.")
+                                await websocket.send_text("[ERROR] User from token not found.")
+                                return # Or raise exception
+                        else:
+                             # Handle case where token has no 'sub'
+                             print("Warning: Token payload does not contain 'sub' identifier.")
+                             await websocket.send_text("[ERROR] Invalid token payload (missing subject).")
+                             return # Or raise exception
+
                         # Send plain text status
                         await websocket.send_text("[INFO] Authentication successful. Ready to receive PDF file.")
                         
@@ -1093,8 +1162,38 @@ async def process_question_paper(
                 pdf_record.status = "completed"
                 pdf_record.processed_at = datetime.now()
                 db.commit()
+                db.refresh(pdf_record) # Refresh to get the latest state including created_at
+                 
+                # --- START: Save to History ---
+                if response_text: # Only save if we got a result
+                    try:
+                        # Create a title (e.g., first 100 chars, clean basic markdown)
+                        title_raw = response_text[:100].strip()
+                        # Basic cleanup: remove leading #, *, -, spaces
+                        title = title_raw.lstrip('#*-\\s ') 
+                        if not title: # Handle cases where the start is just markdown
+                            title = "Processed Content" 
+                            
+                        history_entry = models.History(
+                            user_id=user_id,
+                            pdf_name=pdf_record.filename,
+                            title=title,
+                            result=response_text,
+                            # created_at and expires_at are handled by __init__
+                        )
+                        db.add(history_entry)
+                        db.commit()
+                        # Log successful history save
+                        print(f"Successfully saved history entry ID: {history_entry.id} for User ID: {user_id}") 
+                        await websocket.send_text("[INFO] Result saved to history.")
+                    except Exception as history_error:
+                        print(f"Error saving to history: {str(history_error)}")
+                        await websocket.send_text(f"[WARNING] Could not save result to history: {str(history_error)}")
+                # --- END: Save to History ---
+
             except Exception as update_error:
-                print(f"Warning: Could not update PDF record: {str(update_error)}")
+                # Send plain text warning
+                await websocket.send_text(f"[WARNING] Could not update PDF record: {str(update_error)}")
         
         # Return results
         return {

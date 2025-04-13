@@ -64,7 +64,7 @@ export default function ChangePasswordScreen() {
         Alert.alert('Error', response.message || 'Failed to change password.');
       }
     } catch (error) {
-      console.error('Change password error:', error);
+      console.log('Change password error:', error);
       Alert.alert('Error', 'An unexpected error occurred.');
     } finally {
       setIsLoading(false);

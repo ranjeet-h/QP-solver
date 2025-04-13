@@ -1,5 +1,8 @@
 import { DocumentPickerAsset } from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system'; // Import FileSystem
+import { WS_BASE_URL } from '../config/api'; // Restore original import, remove API_BASE_URL if handled by utils/api
+import { HistoryListResponse, HistoryDetail } from '../types/api'; // Import history types
+import api, { ApiResponse } from '../utils/api'; // Import the shared api utility and ApiResponse type
 
 // Add necessary types for WebSocket handling
 type WebSocketContentChunkCallback = (chunk: string) => void;
@@ -15,10 +18,11 @@ export interface SolverResponse {
   format: 'markdown';
 }
 
-// Define the WebSocket URL and Token
+
 // Use 10.0.2.2 for Android emulator to connect to host machine's localhost
 const DEFAULT_WS_URL = "ws://10.0.2.2:8000/api/v1/pdf/ws/process";
-const DEFAULT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTUwOTg4OTYsInN1YiI6InVzZXJAZXhhbXBsZS5jb20ifQ.QX9N0HxZcVQJJbKKnPDVt0K2mNeEQyACsOf04iBCcFo";
+// Remove the hardcoded token
+// const DEFAULT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTUwOTg4OTYsInN1YiI6InVzZXJAZXhhbXBsZS5jb20ifQ.QX9N0HxZcVQJJbKKnPDVt0K2mNeEQyACsOf04iBCcFo";
 
 export const solverService = {
   solveQuestion: async (questionFile: DocumentPickerAsset, referenceFile: DocumentPickerAsset): Promise<SolverResponse> => {
@@ -70,7 +74,8 @@ Final answer with explanation
     onContentChunk: WebSocketContentChunkCallback,
     onStatusUpdate: WebSocketStatusCallback,
     onError: WebSocketErrorCallback,
-    onClose: WebSocketCloseCallback
+    onClose: WebSocketCloseCallback,
+    token: string | null // Accept token as an argument
   ): WebSocket | null => { // Return null if no file
 
     // Ensure we have a file URI before attempting to connect
@@ -80,12 +85,18 @@ Final answer with explanation
         onError(new ErrorEvent('FileError', { message: 'Question file URI is missing.' }));
         return null; // Cannot proceed without a file
     }
+
+    // Ensure token is provided
+    if (!token) {
+      console.error("Authentication token is missing for WebSocket connection.");
+      onError(new ErrorEvent('AuthError', { message: 'Authentication token is missing.' }));
+      return null;
+    }
     
-    // Construct the URL with the token
-    // Adjust query parameter name if needed by your backend
-    const urlWithToken = `${DEFAULT_WS_URL}?token=${DEFAULT_TOKEN}`; 
+    // Construct the URL (token will be sent in the initial message now)
+    const ws = new WebSocket(DEFAULT_WS_URL); 
                                                   
-    const ws = new WebSocket(urlWithToken);
+    // const ws = new WebSocket(urlWithToken);
 
     ws.onopen = async () => { // Make onopen async to use await for file reading
       console.log('WebSocket connection opened');
@@ -93,7 +104,7 @@ Final answer with explanation
       try {
         // 1. Send the authentication token JSON first
         console.log('Sending authentication token JSON...');
-        const authMessage = JSON.stringify({ token: DEFAULT_TOKEN });
+        const authMessage = JSON.stringify({ token: token }); // Use the passed token
         ws.send(authMessage);
         console.log('Authentication token sent.');
 
@@ -166,5 +177,17 @@ Final answer with explanation
     };
 
     return ws; // Return the WebSocket instance so it can be closed manually if needed
-  }
+  },
+
+  // --- START: History API Functions ---
+  getHistoryList: async (): Promise<HistoryListResponse> => {
+    const response: ApiResponse<HistoryListResponse> = await api.get<HistoryListResponse>('/history/'); 
+    return response.history; // Extract the actual list from the response object
+  },
+
+  getHistoryDetail: async (historyId: number): Promise<HistoryDetail> => {
+    const response: ApiResponse<HistoryDetail> = await api.get<HistoryDetail>(`/history/${historyId}`);
+    return response.history; // Extract the detail object from the response object
+  },
+  // --- END: History API Functions ---
 }; 

@@ -79,7 +79,7 @@ export default function SettingsScreen() {
         Alert.alert('Error', 'Could not load profile data.');
       }
     } catch (error) {
-      console.error('Failed to fetch user profile:', error);
+      console.log('Failed to fetch user profile:', error);
       Alert.alert('Error', 'Could not load profile data.');
     } finally {
       setIsLoading(false);

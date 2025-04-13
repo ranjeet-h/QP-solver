@@ -33,6 +33,8 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import { Feather, Ionicons } from '@expo/vector-icons';
+import { useAppToast } from '../../hooks/useAppToast';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function HomeScreen() {
   // Re-add referenceBookFile state
@@ -46,6 +48,7 @@ export default function HomeScreen() {
   const wsRef = useRef<WebSocket | null>(null);
   
   const { userCredits, setUserCredits } = useAuth();
+  const { showSuccessToast, showErrorToast } = useAppToast();
 
   useEffect(() => {
     return () => {
@@ -66,7 +69,7 @@ export default function HomeScreen() {
         setError('');
       }
     } catch (err) {
-      console.error('Error picking reference book:', err);
+      console.log('Error picking reference book:', err);
       setError('Could not pick reference book.');
     }
   };
@@ -84,7 +87,7 @@ export default function HomeScreen() {
         setError('');
       }
     } catch (err) {
-      console.error('Error picking question paper:', err);
+      console.log('Error picking question paper:', err);
       setError('Could not pick question paper.');
     }
   };
@@ -116,9 +119,8 @@ export default function HomeScreen() {
   };
 
   const handleSolveQuestionStream = async () => {
-    // Check required question file first
     if (!questionFile) {
-      setError('Please upload a question paper (required)');
+      showErrorToast('No File Selected', 'Please select a question paper PDF first.');
       return;
     }
 
@@ -146,6 +148,16 @@ export default function HomeScreen() {
     setUserCredits(userCredits - requiredCredits); 
     
     try {
+      // Retrieve the token from storage
+      const token = await AsyncStorage.getItem('userToken');
+      console.log("Token retrieved:", token);
+      if (!token) {
+        showErrorToast('Authentication Required', 'Please log in to solve questions.');
+        setIsStreaming(false);
+        setUserCredits(userCredits);
+        return;
+      }
+
       // Setup new WebSocket connection
       console.log("Creating new WebSocket connection");
       wsRef.current = solverService.solveQuestionStream(
@@ -192,7 +204,7 @@ export default function HomeScreen() {
           }
         },
         (errorEvent) => { // error callback
-          console.error("WebSocket Error Event:", errorEvent);
+          console.log("WebSocket Error Event:", errorEvent);
           const message = (errorEvent as any)?.message || 'Connection error';
           setError(`WebSocket connection failed: ${message}`);
           setStatusMessage('Connection failed.');
@@ -223,10 +235,17 @@ export default function HomeScreen() {
           }
           
           wsRef.current = null;
-        }
+        },
+        token // Pass the retrieved token
       );
+
+      if (!wsRef.current) {
+        // This might happen if the token was missing or file URI was invalid initially
+        throw new Error("Failed to establish WebSocket connection.");
+      }
+
     } catch (error) {
-      console.error("Error initiating WebSocket connection:", error);
+      console.log("Error initiating WebSocket connection:", error);
       setError('Failed to connect to the solver service. Please try again.');
       // Revert credits on initial connection error
       setUserCredits(userCredits); 
@@ -289,7 +308,7 @@ export default function HomeScreen() {
       }
     } catch (error) {
       setError('Failed to export file. Please try again.');
-      console.error('Export error:', error);
+      console.log('Export error:', error);
     } finally {
       setExportLoading(false);
     }
@@ -444,6 +463,16 @@ export default function HomeScreen() {
                   </Text>
                 </VStack>
               )} */}
+
+              {/* Add test toast button */}
+              {/* <Button 
+                variant="outline" 
+                action="secondary" 
+                onPress={testToastMessages} 
+                style={styles.testButton}
+              >
+                <ButtonText>Test Toast Messages</ButtonText>
+              </Button> */}
             </VStack>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -462,5 +491,11 @@ const markdownStyles = StyleSheet.create({
   heading2: {
     marginTop: 12,
     marginBottom: 6,
+  },
+});
+
+const styles = StyleSheet.create({
+  testButton: {
+    marginBottom: 4,
   },
 });

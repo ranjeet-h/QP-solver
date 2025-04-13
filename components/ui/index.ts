@@ -48,4 +48,17 @@ export * from './toast';
 export * from './tooltip';
 export * from './view';
 export * from './virtualized-list';
-export * from './vstack'; 
+export * from './vstack';
+
+// Add our custom toast exports to the index file
+import { CustomToastProvider, toast, showToast, showSuccessToast, showErrorToast, showWarningToast, showInfoToast } from './custom-toast';
+
+export { 
+  CustomToastProvider, 
+  toast, 
+  showToast, 
+  showSuccessToast, 
+  showErrorToast, 
+  showWarningToast, 
+  showInfoToast 
+}; 

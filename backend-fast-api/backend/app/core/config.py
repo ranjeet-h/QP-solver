@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 load_dotenv()
 
 class Settings(BaseSettings):
-    SECRET_KEY: str = "your-secret-key"  # Change in production
+    SECRET_KEY: str = os.getenv("JWT_SECRET_KEY") or "supersecretkey-changeme-in-production"  # Change in production
     
     PROJECT_NAME: str = "PDF Processing Backend"
     VERSION: str = "0.1.0"

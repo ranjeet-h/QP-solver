@@ -15,8 +15,9 @@
     "preset": "jest-expo"
   },
   "dependencies": {
+    "@backpackapp-io/react-native-toast": "^0.13.0",
     "@expo/html-elements": "^0.4.2",
-    "@expo/vector-icons": "^14.0.2",
+    "@expo/vector-icons": "^14.1.0",
     "@expo/webpack-config": "^19.0.1",
     "@gluestack-ui/accordion": "^1.0.13",
     "@gluestack-ui/actionsheet": "^0.2.51",
@@ -85,6 +86,7 @@
     "react-native-safe-area-context": "^5.3.0",
     "react-native-screens": "~4.4.0",
     "react-native-share": "^12.0.9",
+    "react-native-simple-toast": "^3.3.2",
     "react-native-svg": "15.11.2",
     "react-native-web": "~0.19.13",
     "react-native-webview": "13.12.5",

@@ -1,23 +1,25 @@
 import axios, { AxiosError, AxiosInstance, AxiosResponse } from 'axios';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '../config/api'; // Import the centralized base URL
 
-// Define base API configuration
+// Define base API configuration - Using imported base URL now
 const API_CONFIG = {
-  BASE_URL: 'https://your-api-base-url.com', // Replace with your actual API base URL
+  // BASE_URL: 'https://your-api-base-url.com', // Removed hardcoded URL
   TIMEOUT: 30000, // 30 seconds
 };
 
 // Define response types
-interface ApiResponse<T = any> {
-  data: T;
+// Export the interface so it can be imported elsewhere
+export interface ApiResponse<T = any> {
+  history: T;
   status: number;
   message?: string;
 }
 
 // Create API client instance
 const apiClient: AxiosInstance = axios.create({
-  baseURL: API_CONFIG.BASE_URL,
+  baseURL: API_BASE_URL, // Use the base URL directly (it now includes /api/v1)
   timeout: API_CONFIG.TIMEOUT,
   headers: {
     'Content-Type': 'application/json',
@@ -104,14 +106,14 @@ export const api = {
 const handleApiError = (error: AxiosError) => {
   if (error.response) {
     // Server responded with error status
-    console.error('API Error:', error.response.data);
-    console.error('Status:', error.response.status);
+    console.log('API Error:', error.response.data);
+    console.log('Status:', error.response.status);
   } else if (error.request) {
     // Request made but no response
-    console.error('Network Error:', error.request);
+    console.log('Network Error:', error.request);
   } else {
     // Error in request setup
-    console.error('Error:', error.message);
+    console.log('Error:', error.message);
   }
 };
 

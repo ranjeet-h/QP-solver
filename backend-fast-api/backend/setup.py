@@ -7,7 +7,10 @@ CORE_DEPENDENCIES = [
     "uvicorn==0.23.2",
     "SQLAlchemy==2.0.23",
     "alembic==1.12.1",
-    "pydantic==2.4.2",
+    "pydantic==2.7.0",
+    "pydantic-core==2.18.1",
+    "pydantic-settings==2.3.4",
+    "annotated-types==0.7.0",
 ]
 
 # Authentication and security

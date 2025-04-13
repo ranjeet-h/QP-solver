@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Stack, router } from 'expo-router';
-import { KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, ActivityIndicator } from 'react-native';
 import { 
   Button, 
   ButtonText, 
@@ -23,8 +23,10 @@ import {
   Link,
   LinkText
 } from '../../components/ui';
-import { mockLogin } from '../../utils/mockApis';
+import { authService } from '../../services/auth.service';
 import { useAuth } from '../_layout';
+import { useAppToast } from '../../hooks/useAppToast';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const styles = StyleSheet.create({
   container: {
@@ -72,15 +74,49 @@ const styles = StyleSheet.create({
 });
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const { signIn } = useAuth();
+  const { showSuccessToast, showErrorToast } = useAppToast();
+  const [isCheckingToken, setIsCheckingToken] = useState(true);
+
+  // Check for existing valid token on mount
+  useEffect(() => {
+    const checkToken = async () => {
+      try {
+        const token = await AsyncStorage.getItem('userToken');
+        if (token) {
+          console.log('Token found, validating...');
+          // Validate token by trying to fetch user data
+          // The api utility in utils/api.ts handles attaching the token
+          await authService.getCurrentUser();
+          console.log('Token is valid, redirecting...');
+          // If getCurrentUser succeeds, token is valid, redirect to home/tabs root
+          // Use replace to prevent going back to login
+          router.replace('/'); // Redirect to the main app root, likely handled by (tabs) layout
+          // No need to setIsCheckingToken(false) here as we are navigating away
+          return; // Stop further execution in this effect
+        } else {
+          // No token found, stay on login screen
+          console.log('No token found.');
+          setIsCheckingToken(false);
+        }
+      } catch (validationError) {
+        // Token exists but is invalid (getCurrentUser failed)
+        // The interceptor in utils/api.ts should handle removing the invalid token
+        console.log('Token validation failed:', validationError);
+        setIsCheckingToken(false); // Proceed to show login form
+      }
+    };
+
+    checkToken();
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      setError('Please fill in both email and password.');
+    if (!identifier || !password) {
+      setError('Please fill in both fields.');
       return;
     }
 
@@ -88,24 +124,89 @@ export default function LoginScreen() {
     setError('');
 
     try {
-      const response = await mockLogin(email, password);
+      // Determine if identifier is email or phone number
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const phoneRegex = /^\+?[0-9]{10,}$/;
       
-      if (response.success) {
-        await signIn(email, password);
-        
-        router.replace(response.isNewUser ? '/plans' : '/(tabs)');
-      } else {
-        setError(response.message || 'Invalid email or password.');
+      const isEmail = emailRegex.test(identifier);
+      const isPhone = phoneRegex.test(identifier);
+      
+      if (!isEmail && !isPhone) {
+        setError('Please enter a valid email address or phone number.');
+        setIsLoading(false);
+        return;
       }
-    } catch (err) {
-      console.error("Login error:", err);
-      setError('An unexpected error occurred. Please try again.');
+      
+      // Setup login payload based on identifier type
+      const loginPayload: {
+        email?: string;
+        phone_number?: string;
+        password: string;
+      } = {
+        password: password
+      };
+      
+      if (isEmail) {
+        loginPayload.email = identifier.trim().toLowerCase();
+      } else {
+        loginPayload.phone_number = identifier.trim();
+      }
+      
+      const response: any = await authService.login(loginPayload);
+      
+      console.log("Login successful", response);
+      
+      // Store the token securely
+      if (response.access_token) {
+        await AsyncStorage.setItem('userToken', response.access_token);
+        console.log("Token stored successfully");
+      } else {
+        console.log("No access token received in login response");
+        throw new Error("Authentication failed: No token received.");
+      }
+
+      // Update auth context/state (assuming signIn handles this without needing the token passed)
+      await signIn(identifier, password); 
+      
+      // Show success toast
+      showSuccessToast('Login Successful', 'Welcome back to Solver!');
+      
+      // Redirect based on user status
+      router.replace('/plans');
+      
+    } catch (error: any) {
+      console.log("Login API call error:", error);
+
+      let errorMessage = 'Login failed. Please check your credentials.';
+      
+      if (error?.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        if (Array.isArray(detail) && detail.length > 0 && detail[0].msg) {
+          errorMessage = detail[0].msg;
+        } else if (typeof detail === 'string') {
+          errorMessage = detail;
+        }
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
   };
 
   const isInvalid = !!error;
+
+  // Render loading indicator while checking token
+  if (isCheckingToken) {
+    return (
+      <Center className="flex-1 bg-white dark:bg-gray-900">
+        <ActivityIndicator size="large" />
+        <Text className="mt-2 text-gray-500 dark:text-gray-400">Checking session...</Text>
+      </Center>
+    );
+  }
 
   return (
     <Box style={styles.container} className="bg-white dark:bg-gray-900">
@@ -134,15 +235,14 @@ export default function LoginScreen() {
             
             <FormControl isRequired isInvalid={isInvalid} size="lg">
               <FormControlLabel className="mb-1">
-                <FormControlLabelText className="text-gray-700 dark:text-gray-300">Email Address</FormControlLabelText>
+                <FormControlLabelText className="text-gray-700 dark:text-gray-300">Email or Phone Number</FormControlLabelText>
               </FormControlLabel>
               <Input variant="outline">
                 <InputField
-                  placeholder="you@example.com"
-                  value={email}
-                  onChangeText={setEmail}
+                  placeholder="you@example.com or +1234567890"
+                  value={identifier}
+                  onChangeText={setIdentifier}
                   autoCapitalize="none"
-                  keyboardType="email-address"
                   onFocus={() => setError('')}
                 />
               </Input>
@@ -159,6 +259,8 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   secureTextEntry
                   onFocus={() => setError('')}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
                 />
               </Input>
               <FormControlError className="mt-1">
